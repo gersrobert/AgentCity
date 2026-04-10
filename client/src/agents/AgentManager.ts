@@ -110,25 +110,11 @@ export default class AgentManager {
       }
     } catch (err) {
       console.warn(`[AgentManager] Decision failed for ${state.name}:`, err);
-      this.applyFallbackDecision(managed);
+      // Reset lastDecisionAt so the agent retries after the normal interval
+      state.lastDecisionAt = Date.now();
     } finally {
       state.pendingDecision = false;
     }
-  }
-
-  private applyFallbackDecision(managed: ManagedAgent): void {
-    const { state, sprite, movement } = managed;
-    // Pick a random location from the world state
-    const locations = worldState.locations;
-    const randomLoc = locations[Math.floor(Math.random() * locations.length)];
-    if (!randomLoc) return;
-
-    state.targetLocationId = randomLoc.id;
-    const fromTile = this.map.worldToTile(sprite.x, sprite.y);
-    movement.walkTo(sprite, fromTile, randomLoc.tile, () => {
-      state.position = randomLoc.tile;
-      state.lastDecisionAt = Date.now();
-    });
   }
 
   private getNearbyAgents(
