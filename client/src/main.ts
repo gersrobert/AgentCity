@@ -15,8 +15,7 @@ const config: Phaser.Types.Core.GameConfig = {
     createContainer: true,
   },
   scale: {
-    mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
+    mode: Phaser.Scale.NONE,
   },
   scene: [BootScene, ApiKeyScene, GameScene, UIScene],
 };

@@ -1,8 +1,9 @@
 export const TILE_SIZE = 32;
 export const MAP_WIDTH_TILES = 32;
 export const MAP_HEIGHT_TILES = 32;
-export const GAME_WIDTH = 800;
-export const GAME_HEIGHT = 600;
+export const RIGHT_PANEL_WIDTH = 300;
+export const GAME_WIDTH = window.innerWidth;
+export const GAME_HEIGHT = window.innerHeight;
 
 // How often each agent asks Claude for a new decision (ms)
 export const AGENT_DECISION_INTERVAL_MS = 8000;
