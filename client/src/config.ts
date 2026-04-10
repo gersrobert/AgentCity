@@ -1,0 +1,20 @@
+export const TILE_SIZE = 32;
+export const MAP_WIDTH_TILES = 32;
+export const MAP_HEIGHT_TILES = 32;
+export const GAME_WIDTH = 800;
+export const GAME_HEIGHT = 600;
+
+// How often each agent asks Claude for a new decision (ms)
+export const AGENT_DECISION_INTERVAL_MS = 8000;
+
+// Time per tile when walking (ms)
+export const TILE_MOVE_DURATION_MS = 350;
+
+// How long thought bubbles stay visible (ms)
+export const THOUGHT_BUBBLE_DURATION_MS = 4000;
+
+// Stagger between initial agent decisions (ms)
+export const AGENT_DECISION_STAGGER_MS = 2000;
+
+// Proximity in tiles to be considered "nearby"
+export const NEARBY_AGENT_TILE_RADIUS = 5;
