@@ -2,6 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import type {
   AgentThinkRequest,
   AgentDecision,
+  AgentSpawnRequest,
+  NewAgentProfile,
   GMChatRequest,
   WorldEvent,
   Mood,
@@ -346,5 +348,82 @@ export async function processGMMessage(
         agentMoodOverrides: input.agentMoodOverrides,
       }),
     },
+  };
+}
+
+// ─── Agent Spawn ──────────────────────────────────────────────────────────────
+
+const SPAWN_AGENT_TOOL: Anthropic.Tool = {
+  name: "create_agent",
+  description: "Create a brand-new space trader character for the AgentCity universe.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      name: {
+        type: "string",
+        description: "A memorable first name (one word, max 12 chars).",
+      },
+      personality: {
+        type: "string",
+        description:
+          "2–3 sentences describing this character's quirks, backstory, and worldview. Should feel distinct from existing agents.",
+      },
+      mood: {
+        type: "string",
+        enum: ["happy", "anxious", "curious", "bored", "excited", "sad", "angry", "content"],
+        description: "Their emotional state when they first arrive.",
+      },
+      currentGoal: {
+        type: "string",
+        description: "What they are trying to achieve right now (one short sentence).",
+      },
+      currentThought: {
+        type: "string",
+        description: "Their inner monologue as they enter the system (one short sentence, shown as a thought bubble).",
+      },
+    },
+    required: ["name", "personality", "mood", "currentGoal", "currentThought"],
+  },
+};
+
+export async function spawnAgent(
+  req: AgentSpawnRequest,
+  apiKey: string,
+): Promise<NewAgentProfile> {
+  const client = makeClient(apiKey);
+
+  const existingList = req.existingAgentNames.length > 0
+    ? `Agents already in the system: ${req.existingAgentNames.join(", ")}. Create someone clearly different.`
+    : "You are creating the very first agent in this system.";
+
+  const prompt = `You are the world-builder for AgentCity — a quirky space trading simulation where AI agents roam between planets, trade goods (some illegal), and occasionally feed a growing black hole.
+
+${existingList}
+
+A new trader is arriving at ${req.startingPlanetId}. Current conditions: weather is "${req.worldContext.weather}"${req.worldContext.activeEvents.length ? `, active events: ${req.worldContext.activeEvents.join(", ")}` : ""}.
+
+Create a vivid, original character who fits this strange universe. They should feel like a real personality — not a generic trader. Be creative and a little weird.`;
+
+  const response = await client.messages.create({
+    model: AGENT_MODEL,
+    max_tokens: 512,
+    system: "You are a creative writer generating characters for a space trading game.",
+    messages: [{ role: "user", content: prompt }],
+    tools: [SPAWN_AGENT_TOOL],
+    tool_choice: { type: "tool", name: "create_agent" },
+  });
+
+  const toolUse = response.content.find((b) => b.type === "tool_use");
+  if (!toolUse || toolUse.type !== "tool_use") {
+    throw new Error("Claude did not return a create_agent tool_use block");
+  }
+
+  const input = toolUse.input as NewAgentProfile;
+  return {
+    name: input.name,
+    personality: input.personality,
+    mood: input.mood,
+    currentGoal: input.currentGoal,
+    currentThought: input.currentThought,
   };
 }

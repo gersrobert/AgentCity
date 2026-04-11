@@ -74,6 +74,25 @@ export interface AgentDecision {
   purchase: { itemName: string; quantity: number } | null;
 }
 
+// ─── Agent Spawn ─────────────────────────────────────────────────────────────
+
+export interface AgentSpawnRequest {
+  /** IDs of agents already in the world — so the LLM creates someone distinct. */
+  existingAgentNames: string[];
+  /** Planet the new agent will start on. */
+  startingPlanetId: string;
+  /** Current world context so the personality fits the setting. */
+  worldContext: { weather: string; activeEvents: string[] };
+}
+
+export interface NewAgentProfile {
+  name: string;
+  personality: string;
+  mood: Mood;
+  currentGoal: string;
+  currentThought: string;
+}
+
 // ─── Game Master ─────────────────────────────────────────────────────────────
 
 export interface GMChatRequest {

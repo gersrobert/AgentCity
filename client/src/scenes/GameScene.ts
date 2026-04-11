@@ -16,7 +16,8 @@ import {
   AGENT_UNLOCK_INTERVAL_MS,
 } from '../config';
 import type { WorldEvent, AgentState } from '@shared/types';
-import { worldState, unlockPlanet, AGENT_POOL, randomCash } from '../store/worldState';
+import { worldState, unlockPlanet } from '../store/worldState';
+import * as backendClient from '../api/backendClient';
 
 export default class GameScene extends Phaser.Scene {
   private cityMap!: CityMap;
@@ -29,7 +30,7 @@ export default class GameScene extends Phaser.Scene {
 
   // Progressive unlock state
   private nextPlanetIdx = STARTING_PLANET_COUNT;
-  private nextAgentIdx  = 1;
+  private nextAgentIdx  = 0;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -55,9 +56,14 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // ── Agents ──────────────────────────────────────────────────────────────
+    // Clear any seed agents — all agents are spawned dynamically via LLM
+    worldState.agents = [];
     this.agentManager = new AgentManager(this, this.cityMap);
     this.agentManager.setBlackHole(this.blackHole);
     this.agentManager.init();
+
+    // Spawn the first agent immediately
+    this.addNextAgent();
 
     // ── Player rocket ────────────────────────────────────────────────────────
     const startPos = this.cityMap.getPlanetPixelPos('aquaria');
@@ -96,6 +102,11 @@ export default class GameScene extends Phaser.Scene {
 
     this.events.on('EXPLODE_AGENT', (agentId: string) => {
       this.agentManager.explodeAgent(agentId);
+    });
+
+    // Respawn a replacement agent 15 s after any kill
+    this.events.on('AGENT_KILLED', () => {
+      this.time.delayedCall(15_000, () => this.addNextAgent());
     });
 
     this.events.on('FLEE_AGENT', (agentId: string) => {
@@ -138,13 +149,43 @@ export default class GameScene extends Phaser.Scene {
     this.showEventToast(`${planet.label} has entered the system.`);
   }
 
-  private addNextAgent(): void {
-    if (this.nextAgentIdx >= AGENT_POOL.length) return;
-    const def = AGENT_POOL[this.nextAgentIdx++];
-    const agentState: AgentState = { ...def, cash: randomCash() };
-    worldState.agents.push(agentState);
-    this.agentManager.addAgent(agentState);
-    this.showEventToast(`${agentState.name} has arrived in the system.`);
+  private async addNextAgent(): Promise<void> {
+    const agentIdx = this.nextAgentIdx++;
+    const activePlanets = worldState.locations.filter(l => l.id !== 'blackhole');
+    const startLoc = activePlanets[agentIdx % activePlanets.length];
+
+    try {
+      const profile = await backendClient.spawnAgent({
+        existingAgentNames: worldState.agents.map(a => a.name),
+        startingPlanetId: startLoc.id,
+        worldContext: {
+          weather: worldState.weather,
+          activeEvents: worldState.activeEvents,
+        },
+      });
+
+      const agentState: AgentState = {
+        id: `agent_${agentIdx}`,
+        name: profile.name,
+        personality: profile.personality,
+        mood: profile.mood,
+        currentGoal: profile.currentGoal,
+        currentThought: profile.currentThought,
+        currentPlanetId: startLoc.id,
+        position: startLoc.tile,
+        targetLocationId: startLoc.id,
+        lastDecisionAt: 0,
+        pendingDecision: false,
+        cash: 100,
+        inventory: [],
+      };
+
+      worldState.agents.push(agentState);
+      this.agentManager.addAgent(agentState);
+      this.showEventToast(`${agentState.name} has arrived in the system.`);
+    } catch (err) {
+      console.warn('[GameScene] Failed to spawn agent via LLM:', err);
+    }
   }
 
   // ── Private builders ──────────────────────────────────────────────────────

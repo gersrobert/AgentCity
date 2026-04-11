@@ -1,6 +1,8 @@
 import type {
   AgentThinkRequest,
   AgentDecision,
+  AgentSpawnRequest,
+  NewAgentProfile,
   GMChatRequest,
   WorldEvent,
   ApiResponse,
@@ -38,4 +40,8 @@ export async function agentThink(req: AgentThinkRequest): Promise<AgentDecision>
 
 export async function gmChat(req: GMChatRequest): Promise<WorldEvent> {
   return post<WorldEvent>('/api/gamemaster/chat', req);
+}
+
+export async function spawnAgent(req: AgentSpawnRequest): Promise<NewAgentProfile> {
+  return post<NewAgentProfile>('/api/agent/spawn', req);
 }

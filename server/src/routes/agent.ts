@@ -1,9 +1,11 @@
 import { Router, Request, Response } from "express";
 import { getKey } from "../session.js";
-import { getAgentDecision } from "../services/claudeService.js";
+import { getAgentDecision, spawnAgent } from "../services/claudeService.js";
 import type {
   AgentThinkRequest,
   AgentDecision,
+  AgentSpawnRequest,
+  NewAgentProfile,
   ApiResponse,
 } from "../../../shared/types.js";
 
@@ -35,6 +37,39 @@ router.post("/think", async (req: Request, res: Response) => {
     const decision = await getAgentDecision(thinkReq, key);
     console.log("decision", decision);
     const body: ApiResponse<AgentDecision> = { ok: true, data: decision };
+    res.json(body);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    const body: ApiResponse<never> = { ok: false, error: message };
+    res.status(502).json(body);
+  }
+});
+
+router.post("/spawn", async (req: Request, res: Response) => {
+  const key = getKey();
+  if (!key) {
+    const body: ApiResponse<never> = {
+      ok: false,
+      error: "No API key set. Please enter your Anthropic API key first.",
+    };
+    res.status(401).json(body);
+    return;
+  }
+
+  const spawnReq = req.body as AgentSpawnRequest;
+
+  if (!spawnReq.startingPlanetId || !spawnReq.worldContext) {
+    const body: ApiResponse<never> = {
+      ok: false,
+      error: "Missing required fields: startingPlanetId, worldContext",
+    };
+    res.status(400).json(body);
+    return;
+  }
+
+  try {
+    const profile = await spawnAgent(spawnReq, key);
+    const body: ApiResponse<NewAgentProfile> = { ok: true, data: profile };
     res.json(body);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

@@ -344,6 +344,7 @@ export default class AgentManager {
     // Also remove from worldState so Claude doesn't see them
     const wsIdx = worldState.agents.findIndex(a => a.id === agentId);
     if (wsIdx !== -1) worldState.agents.splice(wsIdx, 1);
+    this.scene.events.emit('AGENT_KILLED');
   }
 
   retriggerAgent(agentId: string): void {
@@ -441,6 +442,7 @@ export default class AgentManager {
     // Also remove from worldState so it no longer participates in AI calls
     const wsIdx = worldState.agents.findIndex(a => a.id === agentId);
     if (wsIdx !== -1) worldState.agents.splice(wsIdx, 1);
+    this.scene.events.emit('AGENT_KILLED');
 
     // Animate the explosion using individual image frames via a timer
     const SIZE = 120;
