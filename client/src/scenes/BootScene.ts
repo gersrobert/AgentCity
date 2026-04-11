@@ -1,4 +1,10 @@
 import Phaser from 'phaser';
+import { GAME_WIDTH, GAME_HEIGHT } from '../config';
+
+const PLANET_KEYS = [
+  'planet00', 'planet01', 'planet02', 'planet03', 'planet04',
+  'planet05', 'planet06', 'planet07', 'planet08', 'planet09',
+];
 
 export default class BootScene extends Phaser.Scene {
   constructor() {
@@ -6,36 +12,37 @@ export default class BootScene extends Phaser.Scene {
   }
 
   preload(): void {
-    // No external assets in the prototype — everything is drawn procedurally.
-    // This scene exists so we can add real asset loading here later.
-
     const { width, height } = this.cameras.main;
 
-    // Loading screen
-    const bar = this.add.graphics();
-    bar.fillStyle(0x6644aa, 1);
-    bar.fillRect(width / 2 - 100, height / 2 - 10, 200, 20);
+    // Loading bar background
+    const barBg = this.add.graphics();
+    barBg.fillStyle(0x221144, 1);
+    barBg.fillRoundedRect(width / 2 - 102, height / 2 - 12, 204, 24, 6);
 
     const progress = this.add.graphics();
 
     this.load.on('progress', (value: number) => {
       progress.clear();
-      progress.fillStyle(0xffdd44, 1);
-      progress.fillRect(width / 2 - 98, height / 2 - 8, 196 * value, 16);
+      progress.fillStyle(0x8844ff, 1);
+      progress.fillRoundedRect(width / 2 - 100, height / 2 - 10, 200 * value, 20, 4);
     });
 
-    const title = this.add.text(width / 2, height / 2 - 40, 'AgentCity', {
-      fontSize: '28px',
+    this.add.text(width / 2, height / 2 - 50, 'AGENTCITY', {
+      fontSize: '32px',
       color: '#ffffff',
       fontStyle: 'bold',
-    });
-    title.setOrigin(0.5);
+      letterSpacing: 6,
+    }).setOrigin(0.5);
 
-    const sub = this.add.text(width / 2, height / 2 + 34, 'Loading...', {
+    this.add.text(width / 2, height / 2 + 40, 'Loading universe...', {
       fontSize: '12px',
-      color: '#aaaaaa',
-    });
-    sub.setOrigin(0.5);
+      color: '#8866aa',
+    }).setOrigin(0.5);
+
+    // Load all planet images
+    for (const key of PLANET_KEYS) {
+      this.load.image(key, `planets/${key}.png`);
+    }
   }
 
   create(): void {

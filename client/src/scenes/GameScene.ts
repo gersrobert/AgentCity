@@ -1,123 +1,219 @@
-import Phaser from "phaser";
-import CityMap from "../map/CityMap";
-import AgentManager from "../agents/AgentManager";
+import Phaser from 'phaser';
+import CityMap from '../map/CityMap';
+import AgentManager from '../agents/AgentManager';
+import { PLANETS, PlanetData } from '../map/mapData';
 import {
   GAME_WIDTH,
   GAME_HEIGHT,
-  TILE_SIZE,
-  MAP_WIDTH_TILES,
-  MAP_HEIGHT_TILES,
   RIGHT_PANEL_WIDTH,
-} from "../config";
-import type { WorldEvent, AgentState } from "@shared/types";
-import { NAMED_LOCATIONS } from "../map/mapData";
+  STAR_COUNT,
+  TWINKLE_STAR_COUNT,
+  NEBULA_OPACITY,
+} from '../config';
+import type { WorldEvent, AgentState } from '@shared/types';
 
 export default class GameScene extends Phaser.Scene {
   private cityMap!: CityMap;
   private agentManager!: AgentManager;
+  private planetImages: Phaser.GameObjects.Image[] = [];
+  private planetRotSpeeds: number[] = [];
   private selectedAgentId: string | null = null;
 
   constructor() {
-    super({ key: "GameScene" });
+    super({ key: 'GameScene' });
   }
 
   create(): void {
-    const worldWidth = MAP_WIDTH_TILES * TILE_SIZE;
-    const worldHeight = MAP_HEIGHT_TILES * TILE_SIZE;
+    const mapWidth = GAME_WIDTH - RIGHT_PANEL_WIDTH;
+    const mapHeight = GAME_HEIGHT;
 
-    // Camera viewport excludes the right panel
-    const mapAreaWidth = GAME_WIDTH - RIGHT_PANEL_WIDTH;
-    this.cameras.main.setViewport(0, 0, mapAreaWidth, GAME_HEIGHT);
+    // Camera viewport = left portion of canvas (excludes right panel)
+    this.cameras.main.setViewport(0, 0, mapWidth, mapHeight);
+    this.cameras.main.setZoom(1);
+    this.cameras.main.setBackgroundColor('#000510');
 
-    // Zoom so the whole map fits in the viewport
-    const zoom = Math.min(mapAreaWidth / worldWidth, GAME_HEIGHT / worldHeight);
-    this.cameras.main.setZoom(zoom);
-    this.cameras.main.centerOn(worldWidth / 2, worldHeight / 2);
+    // ── Background layers ───────────────────────────────────────────────────
+    this.createNebulae(mapWidth, mapHeight);
+    this.createStarField(mapWidth, mapHeight);
 
-    // Create map
-    this.cityMap = new CityMap();
-    this.cityMap.drawPlaceholder(this);
+    // ── Planets ─────────────────────────────────────────────────────────────
+    this.cityMap = new CityMap(mapWidth, mapHeight);
+    this.createPlanets(mapWidth, mapHeight);
 
-    // Draw location labels on map
-    this.drawLocationLabels();
-
-    // Create and init agents
+    // ── Agents ──────────────────────────────────────────────────────────────
     this.agentManager = new AgentManager(this, this.cityMap);
     this.agentManager.init();
 
-    // Camera: start centered on the plaza
-    const plaza = this.cityMap.getLocation("plaza");
-    if (plaza) {
-      const worldPos = this.cityMap.tileToWorld(plaza.tile);
-      this.cameras.main.centerOn(worldPos.x, worldPos.y);
-    }
-
-    // Listen for agent selection
-    this.events.on("AGENT_SELECTED", (agent: AgentState) => {
+    // ── Events ──────────────────────────────────────────────────────────────
+    this.events.on('AGENT_SELECTED', (agent: AgentState) => {
       this.selectedAgentId = agent.id;
     });
 
-    // Listen for world events from UIScene
-    this.events.on("WORLD_EVENT", (event: WorldEvent) => {
+    this.events.on('WORLD_EVENT', (event: WorldEvent) => {
       this.handleWorldEvent(event);
     });
 
-    // Bring UI scene on top
-    this.scene.bringToTop("UIScene");
+    this.scene.bringToTop('UIScene');
   }
 
-  update(time: number, delta: number): void {
-    this.agentManager.update(time, delta);
-  }
-
-  private drawLocationLabels(): void {
-    for (const loc of NAMED_LOCATIONS) {
-      const wx = loc.tileX * TILE_SIZE + TILE_SIZE / 2;
-      const wy = loc.tileY * TILE_SIZE - 4;
-
-      this.add
-        .text(wx, wy, loc.label, {
-          fontSize: "8px",
-          color: "#ffdd44",
-          stroke: "#000000",
-          strokeThickness: 2,
-          resolution: 2,
-        })
-        .setOrigin(0.5, 1)
-        .setDepth(5);
+  update(_time: number, delta: number): void {
+    // Rotate planets
+    for (let i = 0; i < this.planetImages.length; i++) {
+      this.planetImages[i].angle += this.planetRotSpeeds[i] * (delta / 1000);
     }
+
+    this.agentManager.update(_time, delta);
+  }
+
+  // ── Private builders ──────────────────────────────────────────────────────
+
+  private createNebulae(w: number, h: number): void {
+    const g = this.add.graphics().setDepth(0);
+
+    // A few large, very faint colour blobs to suggest distant nebulae
+    const blobs = [
+      { x: w * 0.25, y: h * 0.15, rx: 380, ry: 240, color: 0x220055 },
+      { x: w * 0.75, y: h * 0.80, rx: 420, ry: 280, color: 0x001144 },
+      { x: w * 0.60, y: h * 0.35, rx: 300, ry: 200, color: 0x110033 },
+      { x: w * 0.10, y: h * 0.65, rx: 260, ry: 180, color: 0x002211 },
+    ];
+
+    for (const b of blobs) {
+      g.fillStyle(b.color, NEBULA_OPACITY * 1.5);
+      g.fillEllipse(b.x, b.y, b.rx * 2, b.ry * 2);
+      g.fillStyle(b.color, NEBULA_OPACITY);
+      g.fillEllipse(b.x, b.y, b.rx * 3.5, b.ry * 3.5);
+    }
+  }
+
+  private createStarField(w: number, h: number): void {
+    // Static stars — drawn once onto a single Graphics object
+    const staticGfx = this.add.graphics().setDepth(1);
+    for (let i = 0; i < STAR_COUNT; i++) {
+      const x = Math.random() * w;
+      const y = Math.random() * h;
+      const size = Math.random() < 0.85 ? 0.7 : 1.4;
+      const alpha = 0.15 + Math.random() * 0.7;
+      staticGfx.fillStyle(0xffffff, alpha);
+      staticGfx.fillCircle(x, y, size);
+    }
+
+    // Twinkling stars — individual Graphics objects with alpha tweens
+    for (let i = 0; i < TWINKLE_STAR_COUNT; i++) {
+      const x = Math.random() * w;
+      const y = Math.random() * h;
+      const size = 0.8 + Math.random() * 1.2;
+
+      const star = this.add.graphics().setDepth(1);
+      star.fillStyle(0xffffff, 1);
+      star.fillCircle(x, y, size);
+
+      this.tweens.add({
+        targets: star,
+        alpha: { from: 0.05, to: 0.9 + Math.random() * 0.1 },
+        duration: 600 + Math.random() * 2400,
+        ease: 'Sine.InOut',
+        yoyo: true,
+        repeat: -1,
+        delay: Math.random() * 4000,
+      });
+    }
+  }
+
+  private createPlanets(w: number, h: number): void {
+    for (const planet of PLANETS) {
+      const x = Math.round(planet.xRatio * w);
+      const y = Math.round(planet.yRatio * h);
+      const r = planet.radius;
+
+      this.drawPlanetGlow(x, y, r, planet.glowColor);
+      const img = this.drawPlanetImage(x, y, r, planet);
+      this.drawPlanetLabel(x, y, r, planet);
+
+      // Planet is clickable to show info in chat (future)
+      img.setInteractive(new Phaser.Geom.Circle(0, 0, r), Phaser.Geom.Circle.Contains);
+
+      this.planetImages.push(img);
+      this.planetRotSpeeds.push(planet.rotationSpeedDeg);
+    }
+  }
+
+  private drawPlanetGlow(x: number, y: number, r: number, color: number): void {
+    const g = this.add.graphics().setDepth(2);
+
+    // Layered soft glow rings
+    g.fillStyle(color, 0.04);
+    g.fillCircle(x, y, r * 2.6);
+    g.fillStyle(color, 0.08);
+    g.fillCircle(x, y, r * 1.85);
+    g.fillStyle(color, 0.14);
+    g.fillCircle(x, y, r * 1.45);
+    g.fillStyle(color, 0.10);
+    g.fillCircle(x, y, r * 1.15);
+  }
+
+  private drawPlanetImage(
+    x: number,
+    y: number,
+    r: number,
+    planet: PlanetData,
+  ): Phaser.GameObjects.Image {
+    const img = this.add.image(x, y, planet.assetKey);
+    img.setDisplaySize(r * 2, r * 2);
+    img.setDepth(3);
+
+    // Circular mask hides the white background baked into the PNG
+    const maskGfx = this.make.graphics({});
+    maskGfx.fillStyle(0xffffff);
+    maskGfx.fillCircle(x, y, r - 1);
+    img.setMask(maskGfx.createGeometryMask());
+
+    return img;
+  }
+
+  private drawPlanetLabel(x: number, y: number, r: number, planet: PlanetData): void {
+    this.add
+      .text(x, y + r + 14, planet.label, {
+        fontSize: '12px',
+        color: '#ccccdd',
+        stroke: '#000000',
+        strokeThickness: 3,
+        resolution: 2,
+      })
+      .setAlpha(0.85)
+      .setOrigin(0.5, 0)
+      .setDepth(5);
   }
 
   private handleWorldEvent(event: WorldEvent): void {
-    // Visual feedback for weather changes
-    if (event.stateChanges.weather) {
-      this.showWeatherToast(event.stateChanges.weather);
+    if (event.stateChanges.weather || event.stateChanges.activeEvents?.length) {
+      this.showEventToast(event.narrative);
     }
   }
 
-  private showWeatherToast(weather: string): void {
-    const { width, height } = this.cameras.main;
-    const text = this.add.text(
-      width / 2,
-      height / 2 - 80,
-      `Weather: ${weather}`,
-      {
-        fontSize: "14px",
-        color: "#ffffff",
-        backgroundColor: "#44228888",
-        padding: { x: 10, y: 6 },
-        resolution: 2,
-      },
-    );
-    text.setOrigin(0.5);
-    text.setScrollFactor(0);
-    text.setDepth(200);
+  private showEventToast(narrative: string): void {
+    const mapWidth = GAME_WIDTH - RIGHT_PANEL_WIDTH;
+    const maxLen = 80;
+    const display = narrative.length > maxLen ? narrative.slice(0, maxLen) + '…' : narrative;
+
+    const text = this.add.text(mapWidth / 2, GAME_HEIGHT * 0.08, display, {
+      fontSize: '13px',
+      color: '#eeeeff',
+      backgroundColor: '#22004488',
+      padding: { x: 14, y: 8 },
+      stroke: '#6644aa',
+      strokeThickness: 1,
+      resolution: 2,
+      wordWrap: { width: mapWidth * 0.7 },
+      align: 'center',
+    });
+    text.setOrigin(0.5, 0).setScrollFactor(0).setDepth(200);
 
     this.tweens.add({
       targets: text,
       alpha: 0,
-      duration: 2000,
-      delay: 1500,
+      duration: 2500,
+      delay: 2500,
       onComplete: () => text.destroy(),
     });
   }

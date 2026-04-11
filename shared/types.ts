@@ -39,7 +39,8 @@ export interface AgentState {
   mood: Mood;
   currentGoal: string;
   currentThought: string;
-  position: TilePosition;
+  currentPlanetId: string;
+  position: TilePosition;         // approximate tile coords for AI context
   targetLocationId: string | null;
   lastDecisionAt: number;
   pendingDecision: boolean;

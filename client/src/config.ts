@@ -19,3 +19,8 @@ export const AGENT_DECISION_STAGGER_MS = 2000;
 
 // Proximity in tiles to be considered "nearby"
 export const NEARBY_AGENT_TILE_RADIUS = 5;
+
+// Space scene
+export const STAR_COUNT = 180;
+export const TWINKLE_STAR_COUNT = 30;
+export const NEBULA_OPACITY = 0.07;
