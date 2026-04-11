@@ -43,6 +43,7 @@ export default class BootScene extends Phaser.Scene {
     for (const key of PLANET_KEYS) {
       this.load.image(key, `planets/${key}.png`);
     }
+
   }
 
   create(): void {

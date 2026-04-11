@@ -1,8 +1,9 @@
-import Phaser from 'phaser';
-import CityMap from '../map/CityMap';
-import AgentManager from '../agents/AgentManager';
-import PlayerController from '../player/PlayerController';
-import { PLANETS, PlanetData } from '../map/mapData';
+import Phaser from "phaser";
+import CityMap from "../map/CityMap";
+import AgentManager from "../agents/AgentManager";
+import PlayerController from "../player/PlayerController";
+import BlackHole from "../map/BlackHole";
+import { PLANETS, PlanetData } from "../map/mapData";
 import {
   GAME_WIDTH,
   GAME_HEIGHT,
@@ -10,19 +11,20 @@ import {
   STAR_COUNT,
   TWINKLE_STAR_COUNT,
   NEBULA_OPACITY,
-} from '../config';
-import type { WorldEvent, AgentState } from '@shared/types';
+} from "../config";
+import type { WorldEvent, AgentState } from "@shared/types";
 
 export default class GameScene extends Phaser.Scene {
   private cityMap!: CityMap;
   private agentManager!: AgentManager;
   private player!: PlayerController;
+  private blackHole!: BlackHole;
   private planetImages: Phaser.GameObjects.Image[] = [];
   private planetRotSpeeds: number[] = [];
   private selectedAgentId: string | null = null;
 
   constructor() {
-    super({ key: 'GameScene' });
+    super({ key: "GameScene" });
   }
 
   create(): void {
@@ -32,11 +34,14 @@ export default class GameScene extends Phaser.Scene {
     // Camera viewport = left portion of canvas (excludes right panel)
     this.cameras.main.setViewport(0, 0, mapWidth, mapHeight);
     this.cameras.main.setZoom(1);
-    this.cameras.main.setBackgroundColor('#000510');
+    this.cameras.main.setBackgroundColor("#000510");
 
     // ── Background layers ───────────────────────────────────────────────────
     this.createNebulae(mapWidth, mapHeight);
     this.createStarField(mapWidth, mapHeight);
+
+    // ── Black hole (center of the universe) ─────────────────────────────────
+    this.blackHole = new BlackHole(this, mapWidth / 2, mapHeight / 2);
 
     // ── Planets ─────────────────────────────────────────────────────────────
     this.cityMap = new CityMap(mapWidth, mapHeight);
@@ -48,26 +53,31 @@ export default class GameScene extends Phaser.Scene {
 
     // ── Player ──────────────────────────────────────────────────────────────
     // Start at Aquaria. LEFT/RIGHT arrows cycle planets; E inspects agents.
-    this.player = new PlayerController(this, this.cityMap, this.agentManager, 'aquaria');
+    this.player = new PlayerController(
+      this,
+      this.cityMap,
+      this.agentManager,
+      "aquaria",
+    );
 
     // ── Events ──────────────────────────────────────────────────────────────
-    this.events.on('AGENT_SELECTED', (agent: AgentState) => {
+    this.events.on("AGENT_SELECTED", (agent: AgentState) => {
       this.selectedAgentId = agent.id;
     });
 
-    this.events.on('AGENT_RESUME', (agentId: string) => {
+    this.events.on("AGENT_RESUME", (agentId: string) => {
       this.agentManager.resumeAgent(agentId);
     });
 
-    this.events.on('RETRIGGER_AGENT', (agentId: string) => {
+    this.events.on("RETRIGGER_AGENT", (agentId: string) => {
       this.agentManager.retriggerAgent(agentId);
     });
 
-    this.events.on('WORLD_EVENT', (event: WorldEvent) => {
+    this.events.on("WORLD_EVENT", (event: WorldEvent) => {
       this.handleWorldEvent(event);
     });
 
-    this.scene.bringToTop('UIScene');
+    this.scene.bringToTop("UIScene");
   }
 
   update(_time: number, delta: number): void {
@@ -76,6 +86,7 @@ export default class GameScene extends Phaser.Scene {
       this.planetImages[i].angle += this.planetRotSpeeds[i] * (delta / 1000);
     }
 
+    this.blackHole.update(delta);
     this.agentManager.update(_time, delta);
     this.player.update(delta);
   }
@@ -88,9 +99,9 @@ export default class GameScene extends Phaser.Scene {
     // A few large, very faint colour blobs to suggest distant nebulae
     const blobs = [
       { x: w * 0.25, y: h * 0.15, rx: 380, ry: 240, color: 0x220055 },
-      { x: w * 0.75, y: h * 0.80, rx: 420, ry: 280, color: 0x001144 },
-      { x: w * 0.60, y: h * 0.35, rx: 300, ry: 200, color: 0x110033 },
-      { x: w * 0.10, y: h * 0.65, rx: 260, ry: 180, color: 0x002211 },
+      { x: w * 0.75, y: h * 0.8, rx: 420, ry: 280, color: 0x001144 },
+      { x: w * 0.6, y: h * 0.35, rx: 300, ry: 200, color: 0x110033 },
+      { x: w * 0.1, y: h * 0.65, rx: 260, ry: 180, color: 0x002211 },
     ];
 
     for (const b of blobs) {
@@ -127,7 +138,7 @@ export default class GameScene extends Phaser.Scene {
         targets: star,
         alpha: { from: 0.05, to: 0.9 + Math.random() * 0.1 },
         duration: 600 + Math.random() * 2400,
-        ease: 'Sine.InOut',
+        ease: "Sine.InOut",
         yoyo: true,
         repeat: -1,
         delay: Math.random() * 4000,
@@ -145,7 +156,10 @@ export default class GameScene extends Phaser.Scene {
       const img = this.drawPlanetImage(x, y, r, planet);
       this.drawPlanetLabel(x, y, r, planet);
 
-      img.setInteractive(new Phaser.Geom.Circle(0, 0, r), Phaser.Geom.Circle.Contains);
+      img.setInteractive(
+        new Phaser.Geom.Circle(0, 0, r),
+        Phaser.Geom.Circle.Contains,
+      );
 
       this.planetImages.push(img);
       this.planetRotSpeeds.push(planet.rotationSpeedDeg);
@@ -162,7 +176,7 @@ export default class GameScene extends Phaser.Scene {
     g.fillCircle(x, y, r * 1.85);
     g.fillStyle(color, 0.14);
     g.fillCircle(x, y, r * 1.45);
-    g.fillStyle(color, 0.10);
+    g.fillStyle(color, 0.1);
     g.fillCircle(x, y, r * 1.15);
   }
 
@@ -185,12 +199,17 @@ export default class GameScene extends Phaser.Scene {
     return img;
   }
 
-  private drawPlanetLabel(x: number, y: number, r: number, planet: PlanetData): void {
+  private drawPlanetLabel(
+    x: number,
+    y: number,
+    r: number,
+    planet: PlanetData,
+  ): void {
     this.add
       .text(x, y + r + 14, planet.label, {
-        fontSize: '12px',
-        color: '#ccccdd',
-        stroke: '#000000',
+        fontSize: "12px",
+        color: "#ccccdd",
+        stroke: "#000000",
         strokeThickness: 3,
         resolution: 2,
       })
@@ -208,18 +227,19 @@ export default class GameScene extends Phaser.Scene {
   private showEventToast(narrative: string): void {
     const mapWidth = GAME_WIDTH - RIGHT_PANEL_WIDTH;
     const maxLen = 80;
-    const display = narrative.length > maxLen ? narrative.slice(0, maxLen) + '…' : narrative;
+    const display =
+      narrative.length > maxLen ? narrative.slice(0, maxLen) + "…" : narrative;
 
     const text = this.add.text(mapWidth / 2, GAME_HEIGHT * 0.08, display, {
-      fontSize: '13px',
-      color: '#eeeeff',
-      backgroundColor: '#22004488',
+      fontSize: "13px",
+      color: "#eeeeff",
+      backgroundColor: "#22004488",
       padding: { x: 14, y: 8 },
-      stroke: '#6644aa',
+      stroke: "#6644aa",
       strokeThickness: 1,
       resolution: 2,
       wordWrap: { width: mapWidth * 0.7 },
-      align: 'center',
+      align: "center",
     });
     text.setOrigin(0.5, 0).setScrollFactor(0).setDepth(200);
 
