@@ -13,6 +13,7 @@ import {
   BLACKHOLE_GROWTH_PER_DELIVERY,
 } from '../config';
 import { getBuyListing, getSellListings, ILLEGAL_CASH_RESERVE } from '@shared/market';
+import AudioManager from '../audio/AudioManager';
 
 export interface AgentDecisionTrace {
   agentName: string;
@@ -171,7 +172,7 @@ export default class AgentManager {
         // All other agents are visible from space
         nearbyAgents: worldState.agents
           .filter((a) => a.id !== state.id)
-          .map(({ id, name, mood, currentGoal }) => ({ id, name, mood, currentGoal })),
+          .map(({ id, name, mood, mission }) => ({ id, name, mood, mission })),
       };
 
       const decision = await backendClient.agentThink(request);
@@ -180,9 +181,21 @@ export default class AgentManager {
       const soldRecord = atPlanet ? this.executeSell(managed, state.currentPlanetId) : null;
       const boughtItem = atPlanet ? this.executeBuy(managed, state.currentPlanetId, decision.purchase) : null;
 
+      // Show money pop-ups above the agent and play audio
+      if (soldRecord) {
+        sprite.showMoneyPopup(Math.abs(soldRecord.profit), soldRecord.profit >= 0);
+        AudioManager.getInstance().playSell(soldRecord.profit);
+      }
+      if (boughtItem) {
+        // Small delay so sell and buy pops don't overlap exactly
+        this.scene.time.delayedCall(300, () => {
+          sprite.showMoneyPopup(boughtItem.cost, false);
+          AudioManager.getInstance().playBuy();
+        });
+      }
+
       // Apply state changes
       state.mood = decision.newMood;
-      state.currentGoal = decision.newGoal;
       state.currentThought = decision.thought;
       state.targetLocationId = decision.targetLocationId;
 
@@ -439,7 +452,6 @@ export default class AgentManager {
     }
 
     m.state.mood = 'anxious';
-    m.state.currentGoal = 'Getting out of here fast';
     m.state.currentThought = 'Nothing to see here, just passing through…';
     m.state.targetLocationId = target.id;
     m.sprite.updateMoodColor('anxious');

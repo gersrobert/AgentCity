@@ -73,8 +73,8 @@ const RIGHT_PANEL_HTML = `
     <div id="inspector-mood" style="font-size:12px; color:#aaffaa; margin-bottom:10px;"></div>
     <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Personality</div>
     <div id="inspector-personality" style="font-size:10px; color:#cccccc; margin-bottom:10px; line-height:1.4;"></div>
-    <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Goal</div>
-    <div id="inspector-goal" style="font-size:10px; color:#cccccc; margin-bottom:10px;"></div>
+    <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Mission</div>
+    <div id="inspector-mission" style="font-size:10px; color:#88ddff; margin-bottom:10px; font-style:italic;"></div>
     <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Thinking</div>
     <div id="inspector-thought" style="font-size:10px; color:#ffffcc; font-style:italic; line-height:1.4; margin-bottom:10px;"></div>
     <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Cargo</div>

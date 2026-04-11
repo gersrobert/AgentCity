@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import * as backendClient from '../api/backendClient';
 import { GAME_WIDTH, GAME_HEIGHT } from '../config';
+import { worldState } from '../store/worldState';
+import AudioManager from '../audio/AudioManager';
 
 export default class ApiKeyScene extends Phaser.Scene {
   private errorText: Phaser.GameObjects.Text | null = null;
@@ -107,11 +109,25 @@ export default class ApiKeyScene extends Phaser.Scene {
       return;
     }
 
+    // Init audio on first user gesture (satisfies browser autoplay policy)
+    AudioManager.getInstance().init();
+
     errorEl.textContent = 'Connecting...';
 
     try {
       await backendClient.setApiKey(apiKey);
-      this.scene.start('GameScene');
+
+      // Pre-spawn the first agent so it's already present when the game loads
+      errorEl.textContent = 'Summoning first agent...';
+      const activePlanets = worldState.locations.filter(l => l.id !== 'blackhole');
+      const startLoc = activePlanets[0];
+      const firstAgentProfile = await backendClient.spawnAgent({
+        existingAgentNames: [],
+        startingPlanetId: startLoc.id,
+        worldContext: { weather: worldState.weather, activeEvents: worldState.activeEvents },
+      });
+
+      this.scene.start('GameScene', { firstAgentProfile, firstAgentPlanetId: startLoc.id });
       this.scene.launch('UIScene');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to set API key';

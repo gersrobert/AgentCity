@@ -1,6 +1,14 @@
 // ─── Inter-planetary goods market ────────────────────────────────────────────
 // Each planet has items it sells (agents can buy) and items it accepts from agents.
 // No item appears in both lists for the same planet.
+//
+// Resource categories:
+//   Botanicals  — medicinal herbs, bloom extract, dream pollen, spore clusters
+//   Ores        — iron ore, volcanic glass, rare minerals, ancient stone
+//   Food        — ocean pearls, tidal salt, desert spice, preserved rations
+//   Textiles    — nebula silk, dyed cloth, calm essence, woven charms
+//   Tech        — cryo shards, navigation crystals, clay tablets, void circuits
+//   Contraband  — psyche spores ★, stolen relics ★, dark matter ★
 
 // Agents won't buy illegal goods if their remaining cash would fall below this.
 // Ensures they keep enough credits to continue legal trading afterwards.
@@ -18,114 +26,133 @@ export interface LocationMarket {
 }
 
 export const MARKET: Record<string, LocationMarket> = {
+  // ── Food & Spices hub ─────────────────────────────────────────────────────
   aquaria: {
     sells: [
-      { itemName: 'tidal crystals',    price: 18, isIllegal: false },
-      { itemName: 'contraband spores', price: 160, isIllegal: true },
+      { itemName: 'ocean pearls',   price: 18, isIllegal: false }, // Food
+      { itemName: 'tidal salt',     price: 12, isIllegal: false }, // Food
+      { itemName: 'psyche spores',  price: 160, isIllegal: true }, // Contraband ★
     ],
     buys: [
-      { itemName: 'star spice',        price: 28, isIllegal: false },
-      { itemName: 'void dust',         price: 22, isIllegal: false },
+      { itemName: 'nebula silk',    price: 30, isIllegal: false },
+      { itemName: 'iron ore',       price: 24, isIllegal: false },
     ],
   },
 
-  ember: {
-    sells: [
-      { itemName: 'magma ore',         price: 14, isIllegal: false },
-      { itemName: 'contraband spores', price: 160, isIllegal: true },
-    ],
-    buys: [
-      { itemName: 'tidal crystals',    price: 26, isIllegal: false },
-      { itemName: 'nebula silk',       price: 32, isIllegal: false },
-    ],
-  },
-
+  // ── Botanicals hub ────────────────────────────────────────────────────────
   verdant: {
     sells: [
-      { itemName: 'star spice',        price: 12, isIllegal: false },
-      { itemName: 'stolen relics',     price: 120, isIllegal: true },
+      { itemName: 'medicinal herbs', price: 14, isIllegal: false }, // Botanicals
+      { itemName: 'bloom extract',   price: 20, isIllegal: false }, // Botanicals
+      { itemName: 'stolen relics',   price: 120, isIllegal: true }, // Contraband ★
     ],
     buys: [
-      { itemName: 'magma ore',         price: 22, isIllegal: false },
-      { itemName: 'void dust',         price: 18, isIllegal: false },
+      { itemName: 'desert spice',   price: 26, isIllegal: false },
+      { itemName: 'iron ore',       price: 22, isIllegal: false },
     ],
   },
 
-  dune: {
+  // ── Ores & Minerals hub ───────────────────────────────────────────────────
+  ember: {
     sells: [
-      { itemName: 'void dust',         price: 10, isIllegal: false },
-      { itemName: 'contraband spores', price: 160, isIllegal: true },
+      { itemName: 'iron ore',       price: 10, isIllegal: false }, // Ores
+      { itemName: 'volcanic glass', price: 16, isIllegal: false }, // Ores
+      { itemName: 'psyche spores',  price: 160, isIllegal: true }, // Contraband ★
     ],
     buys: [
-      { itemName: 'tidal crystals',    price: 30, isIllegal: false },
-      { itemName: 'magma ore',         price: 20, isIllegal: false },
+      { itemName: 'tidal salt',     price: 22, isIllegal: false },
+      { itemName: 'nebula silk',    price: 32, isIllegal: false },
     ],
   },
 
+  // ── Textiles & Crafts hub ─────────────────────────────────────────────────
   nebula: {
     sells: [
-      { itemName: 'nebula silk',       price: 20, isIllegal: false },
-      { itemName: 'stolen relics',     price: 120, isIllegal: true },
+      { itemName: 'nebula silk',    price: 18, isIllegal: false }, // Textiles
+      { itemName: 'dyed cloth',     price: 13, isIllegal: false }, // Textiles
+      { itemName: 'stolen relics',  price: 120, isIllegal: true }, // Contraband ★
     ],
     buys: [
-      { itemName: 'star spice',        price: 22, isIllegal: false },
-      { itemName: 'void dust',         price: 25, isIllegal: false },
+      { itemName: 'bloom extract',  price: 30, isIllegal: false },
+      { itemName: 'void circuits',  price: 28, isIllegal: false },
     ],
   },
 
+  // ── Tech & Navigation hub ─────────────────────────────────────────────────
   frost: {
     sells: [
-      { itemName: 'cryo shards',       price: 16, isIllegal: false },
-      { itemName: 'dark matter',       price: 190, isIllegal: true },
+      { itemName: 'cryo shards',          price: 16, isIllegal: false }, // Tech
+      { itemName: 'navigation crystals',  price: 22, isIllegal: false }, // Tech
+      { itemName: 'dark matter',          price: 190, isIllegal: true }, // Contraband ★
     ],
     buys: [
-      { itemName: 'magma ore',         price: 28, isIllegal: false },
-      { itemName: 'nebula silk',       price: 34, isIllegal: false },
+      { itemName: 'iron ore',       price: 28, isIllegal: false },
+      { itemName: 'nebula silk',    price: 34, isIllegal: false },
     ],
   },
 
-  terracis: {
+  // ── Food & Spices hub (outer) ─────────────────────────────────────────────
+  dune: {
     sells: [
-      { itemName: 'clay tablets',      price: 11, isIllegal: false },
-      { itemName: 'dark matter',       price: 190, isIllegal: true },
+      { itemName: 'desert spice',     price: 11, isIllegal: false }, // Food
+      { itemName: 'preserved rations', price: 9, isIllegal: false }, // Food
+      { itemName: 'psyche spores',    price: 160, isIllegal: true }, // Contraband ★
     ],
     buys: [
-      { itemName: 'cryo shards',       price: 24, isIllegal: false },
-      { itemName: 'tidal crystals',    price: 22, isIllegal: false },
+      { itemName: 'ocean pearls',   price: 30, isIllegal: false },
+      { itemName: 'iron ore',       price: 20, isIllegal: false },
     ],
   },
 
-  aether: {
-    sells: [
-      { itemName: 'calm essence',      price: 25, isIllegal: false },
-      { itemName: 'contraband spores', price: 160, isIllegal: true },
-    ],
-    buys: [
-      { itemName: 'clay tablets',      price: 20, isIllegal: false },
-      { itemName: 'star spice',        price: 30, isIllegal: false },
-    ],
-  },
-
-  reverie: {
-    sells: [
-      { itemName: 'dream pollen',      price: 14, isIllegal: false },
-      { itemName: 'stolen relics',     price: 120, isIllegal: true },
-    ],
-    buys: [
-      { itemName: 'calm essence',      price: 38, isIllegal: false },
-      { itemName: 'cryo shards',       price: 28, isIllegal: false },
-    ],
-  },
-
+  // ── Ores & Minerals hub (outer) ───────────────────────────────────────────
   granite: {
     sells: [
-      { itemName: 'ancient stone',     price: 13, isIllegal: false },
-      { itemName: 'dark matter',       price: 190, isIllegal: true },
+      { itemName: 'ancient stone',  price: 13, isIllegal: false }, // Ores
+      { itemName: 'rare minerals',  price: 17, isIllegal: false }, // Ores
+      { itemName: 'dark matter',    price: 190, isIllegal: true }, // Contraband ★
     ],
     buys: [
-      { itemName: 'dream pollen',      price: 25, isIllegal: false },
-      { itemName: 'nebula silk',       price: 38, isIllegal: false },
-      { itemName: 'void dust',         price: 20, isIllegal: false },
+      { itemName: 'dream pollen',   price: 25, isIllegal: false },
+      { itemName: 'nebula silk',    price: 38, isIllegal: false },
+    ],
+  },
+
+  // ── Textiles & Crafts hub (outer) ─────────────────────────────────────────
+  aether: {
+    sells: [
+      { itemName: 'calm essence',   price: 22, isIllegal: false }, // Textiles
+      { itemName: 'woven charms',   price: 15, isIllegal: false }, // Textiles
+      { itemName: 'psyche spores',  price: 160, isIllegal: true }, // Contraband ★
+    ],
+    buys: [
+      { itemName: 'clay tablets',   price: 20, isIllegal: false },
+      { itemName: 'medicinal herbs', price: 28, isIllegal: false },
+    ],
+  },
+
+  // ── Tech & Navigation hub (outer) ────────────────────────────────────────
+  terracis: {
+    sells: [
+      { itemName: 'clay tablets',   price: 11, isIllegal: false }, // Tech
+      { itemName: 'void circuits',  price: 19, isIllegal: false }, // Tech
+      { itemName: 'dark matter',    price: 190, isIllegal: true }, // Contraband ★
+    ],
+    buys: [
+      { itemName: 'cryo shards',    price: 28, isIllegal: false },
+      { itemName: 'ocean pearls',   price: 22, isIllegal: false },
+    ],
+  },
+
+  // ── Botanicals hub (outer) ────────────────────────────────────────────────
+  reverie: {
+    sells: [
+      { itemName: 'dream pollen',   price: 14, isIllegal: false }, // Botanicals
+      { itemName: 'spore clusters', price: 17, isIllegal: false }, // Botanicals
+      { itemName: 'stolen relics',  price: 120, isIllegal: true }, // Contraband ★
+    ],
+    buys: [
+      { itemName: 'calm essence',   price: 38, isIllegal: false },
+      { itemName: 'cryo shards',    price: 28, isIllegal: false },
     ],
   },
 
@@ -134,9 +161,9 @@ export const MARKET: Record<string, LocationMarket> = {
   blackhole: {
     sells: [],
     buys: [
-      { itemName: 'dark matter',       price: 0, isIllegal: true },
-      { itemName: 'stolen relics',     price: 0, isIllegal: true },
-      { itemName: 'contraband spores', price: 0, isIllegal: true },
+      { itemName: 'dark matter',    price: 0, isIllegal: true },
+      { itemName: 'stolen relics',  price: 0, isIllegal: true },
+      { itemName: 'psyche spores',  price: 0, isIllegal: true },
     ],
   },
 };
@@ -169,3 +196,17 @@ export function isItemIllegal(itemName: string): boolean {
   }
   return false;
 }
+
+// ─── Planet resource category descriptions (for spawn prompt context) ─────────
+export const PLANET_RESOURCE_CATEGORY: Record<string, string> = {
+  aquaria:  'Food & Spices (ocean pearls, tidal salt)',
+  verdant:  'Botanicals (medicinal herbs, bloom extract)',
+  ember:    'Ores & Minerals (iron ore, volcanic glass)',
+  nebula:   'Textiles & Crafts (nebula silk, dyed cloth)',
+  frost:    'Tech & Navigation (cryo shards, navigation crystals)',
+  dune:     'Food & Spices (desert spice, preserved rations)',
+  granite:  'Ores & Minerals (ancient stone, rare minerals)',
+  aether:   'Textiles & Crafts (calm essence, woven charms)',
+  terracis: 'Tech & Navigation (clay tablets, void circuits)',
+  reverie:  'Botanicals (dream pollen, spore clusters)',
+};

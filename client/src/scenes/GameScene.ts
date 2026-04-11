@@ -15,9 +15,10 @@ import {
   PLANET_UNLOCK_INTERVAL_MS,
   AGENT_UNLOCK_INTERVAL_MS,
 } from '../config';
-import type { WorldEvent, AgentState } from '@shared/types';
+import type { WorldEvent, AgentState, NewAgentProfile } from '@shared/types';
 import { worldState, unlockPlanet } from '../store/worldState';
 import * as backendClient from '../api/backendClient';
+import AudioManager from '../audio/AudioManager';
 
 export default class GameScene extends Phaser.Scene {
   private cityMap!: CityMap;
@@ -36,7 +37,7 @@ export default class GameScene extends Phaser.Scene {
     super({ key: 'GameScene' });
   }
 
-  create(): void {
+  create(data?: { firstAgentProfile?: NewAgentProfile; firstAgentPlanetId?: string }): void {
     const mapWidth = GAME_WIDTH - RIGHT_PANEL_WIDTH;
     const mapHeight = GAME_HEIGHT;
 
@@ -62,8 +63,12 @@ export default class GameScene extends Phaser.Scene {
     this.agentManager.setBlackHole(this.blackHole);
     this.agentManager.init();
 
-    // Spawn the first agent immediately
-    this.addNextAgent();
+    // Use pre-spawned first agent if available, otherwise spawn one now
+    if (data?.firstAgentProfile && data?.firstAgentPlanetId) {
+      this.addAgentFromProfile(data.firstAgentProfile, data.firstAgentPlanetId);
+    } else {
+      this.addNextAgent();
+    }
 
     // ── Player rocket ────────────────────────────────────────────────────────
     const startPos = this.cityMap.getPlanetPixelPos('aquaria');
@@ -72,6 +77,7 @@ export default class GameScene extends Phaser.Scene {
       this, this.cityMap, this.agentManager,
       startPos.x - startR - 50, startPos.y,
     );
+    this.rocket.setBlackHole(this.blackHole);
     this.agentManager.setPlayerRef(this.rocket);
 
     // ── Progressive unlock timers ────────────────────────────────────────────
@@ -92,6 +98,7 @@ export default class GameScene extends Phaser.Scene {
     this.events.on('AGENT_SELECTED', (agent: AgentState) => {
       this.selectedAgentId = agent.id;
       this.rocket.setInspecting(true);
+      AudioManager.getInstance().playInspect();
     });
 
     this.events.on('AGENT_RESUME', (agentId: string) => {
@@ -113,6 +120,7 @@ export default class GameScene extends Phaser.Scene {
     });
 
     this.events.on('EXPLODE_AGENT', (agentId: string) => {
+      AudioManager.getInstance().playExplosion();
       this.agentManager.explodeAgent(agentId);
     });
 
@@ -134,6 +142,7 @@ export default class GameScene extends Phaser.Scene {
     });
 
     this.events.on('BLACKHOLE_GROW', (sizeFraction: number) => {
+      AudioManager.getInstance().playBlackholeGrow();
       this.blackHole.setSizeFraction(sizeFraction);
       this.scene.get('UIScene').events.emit('BLACKHOLE_GROW', sizeFraction);
     });
@@ -158,7 +167,34 @@ export default class GameScene extends Phaser.Scene {
     const planet = PLANETS[this.nextPlanetIdx++];
     unlockPlanet(planet);
     this.renderPlanet(planet);
+    AudioManager.getInstance().playPlanetSpawn();
     this.showEventToast(`${planet.label} has entered the system.`);
+  }
+
+  private addAgentFromProfile(profile: NewAgentProfile, planetId: string): void {
+    const agentIdx = this.nextAgentIdx++;
+    const startLoc = worldState.locations.find(l => l.id === planetId) ?? worldState.locations[0];
+
+    const agentState: AgentState = {
+      id: `agent_${agentIdx}`,
+      name: profile.name,
+      personality: profile.personality,
+      mood: profile.mood,
+      mission: profile.mission,
+      currentThought: profile.currentThought,
+      currentPlanetId: startLoc.id,
+      position: startLoc.tile,
+      targetLocationId: startLoc.id,
+      lastDecisionAt: 0,
+      pendingDecision: false,
+      cash: 100,
+      inventory: [],
+    };
+
+    worldState.agents.push(agentState);
+    this.agentManager.addAgent(agentState);
+    AudioManager.getInstance().playAgentSpawn();
+    this.showEventToast(`${agentState.name} has arrived in the system.`);
   }
 
   private async addNextAgent(): Promise<void> {
@@ -181,7 +217,7 @@ export default class GameScene extends Phaser.Scene {
         name: profile.name,
         personality: profile.personality,
         mood: profile.mood,
-        currentGoal: profile.currentGoal,
+        mission: profile.mission,
         currentThought: profile.currentThought,
         currentPlanetId: startLoc.id,
         position: startLoc.tile,
@@ -194,6 +230,7 @@ export default class GameScene extends Phaser.Scene {
 
       worldState.agents.push(agentState);
       this.agentManager.addAgent(agentState);
+      AudioManager.getInstance().playAgentSpawn();
       this.showEventToast(`${agentState.name} has arrived in the system.`);
     } catch (err) {
       console.warn('[GameScene] Failed to spawn agent via LLM:', err);

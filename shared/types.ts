@@ -47,7 +47,7 @@ export interface AgentState {
   name: string;
   personality: string;
   mood: Mood;
-  currentGoal: string;
+  mission: string;               // permanent cover-story mission assigned at spawn, never changes
   currentThought: string;
   currentPlanetId: string;
   position: TilePosition;         // approximate tile coords for AI context
@@ -63,13 +63,12 @@ export interface AgentState {
 export interface AgentThinkRequest {
   agent: AgentState;
   worldState: Omit<WorldState, 'agents'>;
-  nearbyAgents: Pick<AgentState, 'id' | 'name' | 'mood' | 'currentGoal'>[];
+  nearbyAgents: Pick<AgentState, 'id' | 'name' | 'mood' | 'mission'>[];
 }
 
 export interface AgentDecision {
   targetLocationId: string;
   newMood: Mood;
-  newGoal: string;
   thought: string;
   purchase: { itemName: string; quantity: number } | null;
 }
@@ -89,7 +88,7 @@ export interface NewAgentProfile {
   name: string;
   personality: string;
   mood: Mood;
-  currentGoal: string;
+  mission: string;               // permanent cover-story mission, tied to starting planet
   currentThought: string;
 }
 

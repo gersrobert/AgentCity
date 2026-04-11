@@ -241,6 +241,30 @@ export default class AgentSprite {
     });
   }
 
+  // ─── Money pop-up (floats up and fades out) ──────────────────────────────
+
+  showMoneyPopup(amount: number, isProfit: boolean): void {
+    const prefix = isProfit ? '+$' : '-$';
+    const color = isProfit ? '#44ff88' : '#ff4444';
+    const label = this.scene.add.text(this.x, this.y - 30, `${prefix}${Math.abs(amount)}`, {
+      fontSize: '11px',
+      color,
+      stroke: '#000000',
+      strokeThickness: 3,
+      resolution: 2,
+      fontStyle: 'bold',
+    }).setOrigin(0.5, 1).setDepth(25);
+
+    this.scene.tweens.add({
+      targets: label,
+      y: this.y - 75,
+      alpha: 0,
+      duration: 2800,
+      ease: 'Cubic.Out',
+      onComplete: () => label.destroy(),
+    });
+  }
+
   getGraphics(): Phaser.GameObjects.Graphics {
     return this.orbGfx;
   }

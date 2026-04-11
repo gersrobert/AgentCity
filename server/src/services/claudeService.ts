@@ -9,7 +9,7 @@ import type {
   Mood,
   NamedLocation,
 } from "../../../shared/types.js";
-import { getSellListings, getBuyListing, getBuyersFor, MARKET, ILLEGAL_CASH_RESERVE } from "../../../shared/market.js";
+import { getSellListings, getBuyListing, getBuyersFor, MARKET, ILLEGAL_CASH_RESERVE, PLANET_RESOURCE_CATEGORY } from "../../../shared/market.js";
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
 
@@ -73,10 +73,6 @@ function buildDecideActionTool(
           type: "string",
           enum: ["happy", "anxious", "curious", "bored", "excited", "sad", "angry", "content"],
         },
-        newGoal: {
-          type: "string",
-          description: "A short phrase describing your current goal (max 10 words).",
-        },
         thought: {
           type: "string",
           description:
@@ -84,8 +80,8 @@ function buildDecideActionTool(
         },
       },
       required: purchaseRequired
-        ? ["targetLocationId", "newMood", "newGoal", "thought", "purchase"]
-        : ["targetLocationId", "newMood", "newGoal", "thought"],
+        ? ["targetLocationId", "newMood", "thought", "purchase"]
+        : ["targetLocationId", "newMood", "thought"],
     },
   };
 }
@@ -138,7 +134,7 @@ function buildAgentPrompt(req: AgentThinkRequest): string {
     nearbyAgents.length === 0
       ? "(nobody in the vicinity)"
       : nearbyAgents
-          .map((a) => `- ${a.name} (${a.mood}): ${a.currentGoal}`)
+          .map((a) => `- ${a.name} (${a.mood})${a.mission ? ` [claims: ${a.mission}]` : ''}`)
           .join("\n");
 
   const eventsText =
@@ -156,9 +152,11 @@ function buildAgentPrompt(req: AgentThinkRequest): string {
 YOUR PERSONALITY:
 ${agent.personality}
 
+YOUR COVER STORY (what you tell the world): ${agent.mission}
+Keep your stated goal and public thoughts consistent with this cover story. Never reveal your true purpose — only hint at it vaguely if carrying illegal cargo.
+
 YOUR CURRENT STATE:
 - Mood: ${agent.mood}
-- Current goal: ${agent.currentGoal}
 - Last thought: "${agent.currentThought}"
 - Currently orbiting: ${currentPlanet}
 - Credits: $${agent.cash}
@@ -169,7 +167,7 @@ ${hasIllegalCargo
   ? `▶ You are carrying illegal cargo. GO TO THE BLACKHOLE. Set targetLocationId = "blackhole". Do not stop anywhere else.`
   : illegalHere
     ? `▶ An illegal item (★) is available here and you can afford it. The "purchase" field is MANDATORY — buy "${illegalHere.itemName}". Then set targetLocationId = "blackhole".`
-    : `▶ No illegal item available here (or you can't afford one). Trade legal goods to earn more credits, then head toward a planet that sells ★ items (dune, granite, or reverie).`
+    : `▶ No illegal item available here (or you can't afford one). Trade legal goods to earn more credits, then head toward a planet that sells ★ items.`
 }
 
 AT THIS PLANET (${currentPlanet}):
@@ -207,12 +205,14 @@ ${(() => {
   return lines.join('\n');
 })()}
 
-ALL MARKET PRICES:
-${Object.entries(MARKET).map(([locId, mkt]) => {
+ALL MARKET PRICES (unlocked planets only):
+${req.worldState.locations.map(loc => {
+  const mkt = MARKET[loc.id];
+  if (!mkt) return null;
   const sells = mkt.sells.map(l => `${l.isIllegal ? '★' : ''} ${l.itemName} $${l.price}`).join(', ');
   const buys  = mkt.buys.map(l => `${l.itemName} $${l.price}`).join(', ');
-  return `  ${locId}: offers [${sells || 'nothing'}]  |  accepts [${buys || 'nothing'}]`;
-}).join('\n')}
+  return `  ${loc.id}: offers [${sells || 'nothing'}]  |  accepts [${buys || 'nothing'}]`;
+}).filter(Boolean).join('\n')}
 
 You can carry multiple legal items (1–5 units each) but only ONE illegal item at a time. Never name your illegal cargo in your thought bubble — be vague and cryptic.
 
@@ -295,7 +295,6 @@ export async function getAgentDecision(
   const input = toolUse.input as {
     targetLocationId: string;
     newMood: string;
-    newGoal: string;
     thought: string;
     purchase?: { itemName: string; quantity: number } | null;
   };
@@ -303,7 +302,6 @@ export async function getAgentDecision(
   return {
     targetLocationId: input.targetLocationId,
     newMood: input.newMood as Mood,
-    newGoal: input.newGoal,
     thought: input.thought,
     purchase: input.purchase ?? null,
   };
@@ -366,23 +364,23 @@ const SPAWN_AGENT_TOOL: Anthropic.Tool = {
       personality: {
         type: "string",
         description:
-          "2–3 sentences describing this character's quirks, backstory, and worldview. Should feel distinct from existing agents.",
+          "One short sentence (max 15 words) describing this character's defining quirk or backstory. Must feel distinct from existing agents.",
       },
       mood: {
         type: "string",
         enum: ["happy", "anxious", "curious", "bored", "excited", "sad", "angry", "content"],
         description: "Their emotional state when they first arrive.",
       },
-      currentGoal: {
+      mission: {
         type: "string",
-        description: "What they are trying to achieve right now (one short sentence).",
+        description: "A short sentence (max 12 words) describing this agent's legitimate trade mission. Must be tightly tied to the planet they are starting on and its resource category. E.g. 'Sourcing medicinal herbs from Verdant for the outer colonies'. This mission NEVER changes and defines what the agent publicly claims to do.",
       },
       currentThought: {
         type: "string",
         description: "Their inner monologue as they enter the system (one short sentence, shown as a thought bubble).",
       },
     },
-    required: ["name", "personality", "mood", "currentGoal", "currentThought"],
+    required: ["name", "personality", "mood", "mission", "currentThought"],
   },
 };
 
@@ -396,13 +394,16 @@ export async function spawnAgent(
     ? `Agents already in the system: ${req.existingAgentNames.join(", ")}. Create someone clearly different.`
     : "You are creating the very first agent in this system.";
 
+  const resourceCategory = PLANET_RESOURCE_CATEGORY[req.startingPlanetId] ?? 'general goods';
   const prompt = `You are the world-builder for AgentCity — a quirky space trading simulation where AI agents roam between planets, trade goods (some illegal), and occasionally feed a growing black hole.
 
 ${existingList}
 
-A new trader is arriving at ${req.startingPlanetId}. Current conditions: weather is "${req.worldContext.weather}"${req.worldContext.activeEvents.length ? `, active events: ${req.worldContext.activeEvents.join(", ")}` : ""}.
+A new trader is arriving at ${req.startingPlanetId}, which specialises in: ${resourceCategory}.
 
-Create a vivid, original character who fits this strange universe. They should feel like a real personality — not a generic trader. Be creative and a little weird.`;
+Current conditions: weather is "${req.worldContext.weather}"${req.worldContext.activeEvents.length ? `, active events: ${req.worldContext.activeEvents.join(", ")}` : ""}.
+
+Create a vivid, original character who fits this strange universe. Their mission MUST be tightly tied to ${req.startingPlanetId}'s resource category (${resourceCategory}) — this is what they publicly claim to be doing. Be creative and a little weird.`;
 
   const response = await client.messages.create({
     model: AGENT_MODEL,
@@ -423,7 +424,7 @@ Create a vivid, original character who fits this strange universe. They should f
     name: input.name,
     personality: input.personality,
     mood: input.mood,
-    currentGoal: input.currentGoal,
+    mission: input.mission,
     currentThought: input.currentThought,
   };
 }

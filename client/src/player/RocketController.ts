@@ -1,6 +1,8 @@
 import Phaser from "phaser";
 import CityMap from "../map/CityMap";
 import AgentManager from "../agents/AgentManager";
+import BlackHole from "../map/BlackHole";
+import AudioManager from "../audio/AudioManager";
 
 // ── Tuning ────────────────────────────────────────────────────────────────────
 const TURN_SPEED = 180; // degrees per second while A/D held
@@ -22,6 +24,7 @@ export default class RocketController {
   private scene: Phaser.Scene;
   private map: CityMap;
   private agentManager: AgentManager;
+  private blackHole: BlackHole | null = null;
 
   private container: Phaser.GameObjects.Container;
   private thrusterGfx: Phaser.GameObjects.Graphics;
@@ -39,6 +42,7 @@ export default class RocketController {
   private vx = 0;
   private vy = 0;
   private inspecting = false;
+  private thrustSoundTimer = 0;
 
   private mapWidth: number;
   private mapHeight: number;
@@ -107,6 +111,10 @@ export default class RocketController {
     this.inspectKey.on("down", () => this.tryInspect());
   }
 
+  setBlackHole(bh: BlackHole): void {
+    this.blackHole = bh;
+  }
+
   setInspecting(active: boolean): void {
     this.inspecting = active;
     if (active) {
@@ -124,6 +132,15 @@ export default class RocketController {
 
     // ── Thrust ────────────────────────────────────────────────────────────────
     const thrusting = !this.inspecting && this.keys.w.isDown;
+    if (thrusting) {
+      this.thrustSoundTimer -= delta;
+      if (this.thrustSoundTimer <= 0) {
+        AudioManager.getInstance().playRocketThrust();
+        this.thrustSoundTimer = 110; // play roughly every 110ms while held
+      }
+    } else {
+      this.thrustSoundTimer = 0; // reset so next burst fires immediately
+    }
     if (thrusting) {
       const rad = Phaser.Math.DegToRad(this.container.angle - 90);
       this.vx += Math.cos(rad) * THRUST * dt;
@@ -159,6 +176,24 @@ export default class RocketController {
         this.x = pp.x + nx * norm * minDist;
         this.y = pp.y + ny * norm * minDist;
         // Kill the inward velocity component (slide along surface)
+        const dot = this.vx * (nx * norm) + this.vy * (ny * norm);
+        if (dot < 0) {
+          this.vx -= dot * (nx * norm);
+          this.vy -= dot * (ny * norm);
+        }
+      }
+    }
+
+    // ── Blackhole collision — push out and slide along surface ────────────────
+    if (this.blackHole) {
+      const minDist = this.blackHole.getRadius() + ROCKET_RADIUS;
+      const nx = this.x - this.blackHole.x;
+      const ny = this.y - this.blackHole.y;
+      const dist = Math.hypot(nx, ny);
+      if (dist < minDist && dist > 0) {
+        const norm = 1 / dist;
+        this.x = this.blackHole.x + nx * norm * minDist;
+        this.y = this.blackHole.y + ny * norm * minDist;
         const dot = this.vx * (nx * norm) + this.vy * (ny * norm);
         if (dot < 0) {
           this.vx -= dot * (nx * norm);

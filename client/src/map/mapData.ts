@@ -31,8 +31,8 @@ function ring(i: number, n: number, r: number, startAngle = 0): { xRatio: number
   };
 }
 
-const INNER = (i: number) => ring(i, 5, 0.27, -Math.PI / 2);
-const OUTER = (i: number) => ring(i, 5, 0.40, -Math.PI / 2 + Math.PI / 5); // half-step offset
+const INNER = (i: number) => ring(i, 5, 0.36, -Math.PI / 2);
+const OUTER = (i: number) => ring(i, 5, 0.46, -Math.PI / 2 + Math.PI / 5); // half-step offset
 
 export const PLANETS: PlanetData[] = [
   // ── Inner ring ────────────────────────────────────────────────────────────

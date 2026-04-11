@@ -16,7 +16,7 @@ export default class InspectorPanel {
   private nameEl: HTMLElement;
   private moodEl: HTMLElement;
   private personalityEl: HTMLElement;
-  private goalEl: HTMLElement;
+  private missionEl: HTMLElement;
   private thoughtEl: HTMLElement;
   private cargoEl: HTMLElement;
   private cashEl: HTMLElement;
@@ -43,7 +43,7 @@ export default class InspectorPanel {
     this.nameEl = container.querySelector('#inspector-name') as HTMLElement;
     this.moodEl = container.querySelector('#inspector-mood') as HTMLElement;
     this.personalityEl = container.querySelector('#inspector-personality') as HTMLElement;
-    this.goalEl = container.querySelector('#inspector-goal') as HTMLElement;
+    this.missionEl = container.querySelector('#inspector-mission') as HTMLElement;
     this.thoughtEl = container.querySelector('#inspector-thought') as HTMLElement;
     this.cargoEl = container.querySelector('#inspector-cargo') as HTMLElement;
     this.cashEl = container.querySelector('#inspector-cash') as HTMLElement;
@@ -81,7 +81,7 @@ export default class InspectorPanel {
     this.nameEl.textContent = agent.name;
     this.moodEl.textContent = `${agent.mood} ${MOOD_EMOJI[agent.mood] ?? ''}`;
     this.personalityEl.textContent = agent.personality;
-    this.goalEl.textContent = agent.currentGoal;
+    this.missionEl.textContent = agent.mission ?? '';
     this.thoughtEl.textContent = `"${agent.currentThought}"`;
 
     // Show legal inventory and cash immediately
@@ -108,7 +108,6 @@ export default class InspectorPanel {
   update(agent: AgentState): void {
     if (this.section.style.display !== 'none') {
       this.thoughtEl.textContent = `"${agent.currentThought}"`;
-      this.goalEl.textContent = agent.currentGoal;
       this.moodEl.textContent = `${agent.mood} ${MOOD_EMOJI[agent.mood] ?? ''}`;
     }
   }
