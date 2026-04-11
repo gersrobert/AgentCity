@@ -30,15 +30,6 @@ export interface InventoryItem {
   buyPrice: number;
 }
 
-export interface TradeRecord {
-  locationId: string;
-  goods: string;
-  quantity: number;
-  profit: number;
-  isIllegal: boolean;
-  timestamp: number;
-}
-
 // ─── Agents ──────────────────────────────────────────────────────────────────
 
 export type Mood =
@@ -64,8 +55,6 @@ export interface AgentState {
   pendingDecision: boolean;
   cash: number;
   inventory: InventoryItem | null;
-  tradeHistory: TradeRecord[];
-  suspicionLevel: number;
 }
 
 // ─── AI Loop ─────────────────────────────────────────────────────────────────

@@ -20,10 +20,15 @@ export const AGENT_DECISION_STAGGER_MS = 2000;
 // Proximity in tiles to be considered "nearby"
 export const NEARBY_AGENT_TILE_RADIUS = 5;
 
+// Set to false to silence agent decision logs in the GM panel
+export const TRACE_AGENT_DECISIONS = true;
+
+// ─── Player ───────────────────────────────────────────────────────────────────
+export const PLAYER_MOVE_DURATION_MS = 120;   // ms per tile (agents are 350ms)
+export const PLAYER_CAMERA_ZOOM = 1.5;
+export const PLAYER_INSPECT_RADIUS = 3;       // Manhattan distance in tiles
+
 // ─── Game economy ─────────────────────────────────────────────────────────────
 export const PLAYER_STARTING_BUDGET = 500;
 export const ARREST_CORRECT_REWARD = 200;
 export const ARREST_FALSE_PENALTY = 150;
-export const TRADE_HISTORY_MAX_LENGTH = 10;
-export const SUSPICION_INCREASE_PER_TRADE = 5;
-export const SUSPICION_DECREASE_PER_TRADE = 1;

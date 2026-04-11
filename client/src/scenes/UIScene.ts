@@ -2,8 +2,9 @@ import Phaser from 'phaser';
 import InspectorPanel from '../ui/InspectorPanel';
 import ChatPanel from '../ui/ChatPanel';
 import type { AgentState } from '@shared/types';
-import { GAME_WIDTH, GAME_HEIGHT, RIGHT_PANEL_WIDTH, PLAYER_STARTING_BUDGET, ARREST_CORRECT_REWARD, ARREST_FALSE_PENALTY } from '../config';
+import { GAME_WIDTH, GAME_HEIGHT, RIGHT_PANEL_WIDTH, PLAYER_STARTING_BUDGET, ARREST_CORRECT_REWARD, ARREST_FALSE_PENALTY  } from '../config';
 import { worldState, applyBudgetChange, isGameOver } from '../store/worldState';
+import type { AgentDecisionTrace } from '../agents/AgentManager';
 
 const RIGHT_PANEL_HTML = `
 <div id="right-panel" style="
@@ -76,24 +77,32 @@ const RIGHT_PANEL_HTML = `
     <div id="inspector-thought" style="font-size:10px; color:#ffffcc; font-style:italic; line-height:1.4; margin-bottom:10px;"></div>
     <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Cash on Hand</div>
     <div id="inspector-cash" style="font-size:12px; color:#ffdd44; margin-bottom:10px;"></div>
-    <button id="inspector-inspect-btn" style="
-      background: #333388;
-      color: #ffffff;
-      border: 1px solid #6644aa;
-      border-radius: 4px;
-      padding: 4px 10px;
-      font-size: 10px;
-      cursor: pointer;
-      margin-bottom: 10px;
-      font-family: monospace;
-      width: 100%;
-    ">🔍 Inspect</button>
-    <div id="inspector-result" style="display:none; margin-bottom:8px;">
-      <div id="inspector-result-text" style="font-size:10px; color:#ffffcc; line-height:1.5; margin-bottom:6px;"></div>
+    <div style="display:flex; gap:6px; margin-bottom:10px;">
+      <button id="inspector-dismiss-btn" style="
+        flex: 1;
+        background: #333333;
+        color: #aaaaaa;
+        border: 1px solid #555566;
+        border-radius: 4px;
+        padding: 5px 8px;
+        font-size: 10px;
+        cursor: pointer;
+        font-family: monospace;
+      ">✕ Dismiss</button>
+      <button id="inspector-inspect-btn" style="
+        flex: 1;
+        background: #333388;
+        color: #ffffff;
+        border: 1px solid #6644aa;
+        border-radius: 4px;
+        padding: 5px 8px;
+        font-size: 10px;
+        cursor: pointer;
+        font-family: monospace;
+      ">🔍 Investigate</button>
     </div>
-    <div id="inspector-trade-log" style="display:none;">
-      <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Trade Log</div>
-      <div id="inspector-trade-entries" style="font-size:9px; color:#cccccc; line-height:1.6;"></div>
+    <div id="inspector-result" style="display:none; margin-bottom:8px;">
+      <div id="inspector-result-text" style="font-size:10px; color:#ffffcc; line-height:1.5;"></div>
     </div>
   </div>
 
@@ -178,11 +187,12 @@ export default class UIScene extends Phaser.Scene {
     this.budgetAmountEl = container.querySelector('#budget-amount') as HTMLElement;
     this.budgetFillEl = container.querySelector('#budget-fill') as HTMLElement;
 
-    this.inspectorPanel = new InspectorPanel(container, () => {
-      this.selectedAgentId = null;
-    }, (agentId: string) => {
-      this.handleInspect(agentId);
-    });
+    this.inspectorPanel = new InspectorPanel(
+      container,
+      () => { this.selectedAgentId = null; },
+      (agentId: string) => { this.handleInspect(agentId); },
+      (agentId: string) => { this.handleDismiss(agentId); },
+    );
     this.chatPanel = new ChatPanel(this, container);
 
     const gameScene = this.scene.get('GameScene');
@@ -198,7 +208,14 @@ export default class UIScene extends Phaser.Scene {
       }
     });
 
+    gameScene.events.on('AGENT_DECISION', (trace: AgentDecisionTrace) => {
+      this.chatPanel.logAgentDecision(trace);
+    });
+
     this.input.keyboard!.on('keydown-ESC', () => {
+      if (this.selectedAgentId) {
+        gameScene.events.emit('AGENT_RESUME', this.selectedAgentId);
+      }
       this.inspectorPanel.hide();
       this.selectedAgentId = null;
     });
@@ -209,16 +226,37 @@ export default class UIScene extends Phaser.Scene {
     });
   }
 
+  private handleDismiss(agentId: string): void {
+    this.scene.get('GameScene').events.emit('AGENT_RESUME', agentId);
+    this.inspectorPanel.hide();
+    this.selectedAgentId = null;
+  }
+
   private handleInspect(agentId: string): void {
     const agent = worldState.agents.find(a => a.id === agentId);
     if (!agent) return;
 
-    const hasIllegalActivity =
-      agent.tradeHistory.some(r => r.isIllegal) || (agent.inventory?.isIllegal ?? false);
-    const delta = hasIllegalActivity ? ARREST_CORRECT_REWARD : -ARREST_FALSE_PENALTY;
-    applyBudgetChange(delta);
-    this.inspectorPanel.showInspectResult(agent, delta);
-    this.updateBudget(worldState.playerBudget);
+    const gameScene = this.scene.get('GameScene');
+    const isIllegal = agent.inventory?.isIllegal ?? false;
+
+    if (isIllegal) {
+      const seized = Math.floor(agent.cash / 2);
+      // Show result first so inventory is still visible in the panel
+      this.inspectorPanel.showInspectResult(agent, seized);
+      // Strip goods and half cash
+      agent.inventory = null;
+      agent.cash -= seized;
+      applyBudgetChange(seized);
+      this.updateBudget(worldState.playerBudget);
+      // Stop current walk and get a new AI decision
+      gameScene.events.emit('RETRIGGER_AGENT', agentId);
+    } else {
+      const penalty = -ARREST_FALSE_PENALTY;
+      this.inspectorPanel.showInspectResult(agent, penalty);
+      applyBudgetChange(penalty);
+      this.updateBudget(worldState.playerBudget);
+      gameScene.events.emit('AGENT_RESUME', agentId);
+    }
 
     if (isGameOver()) {
       this.triggerGameOver();

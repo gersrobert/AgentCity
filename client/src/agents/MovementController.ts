@@ -9,6 +9,8 @@ export default class MovementController {
   private map: CityMap;
   private path: TilePosition[] = [];
   private moving = false;
+  private paused = false;
+  private pausedSprite: AgentSprite | null = null;
   private onArrival: (() => void) | null = null;
 
   constructor(scene: Phaser.Scene, map: CityMap) {
@@ -35,6 +37,11 @@ export default class MovementController {
   }
 
   private stepToNextTile(sprite: AgentSprite): void {
+    if (this.paused) {
+      this.pausedSprite = sprite;
+      return;
+    }
+
     if (this.path.length === 0) {
       this.moving = false;
       this.onArrival?.();
@@ -64,8 +71,29 @@ export default class MovementController {
     return this.moving;
   }
 
+  isPaused(): boolean {
+    return this.paused;
+  }
+
+  pause(): void {
+    this.paused = true;
+  }
+
+  resume(): void {
+    if (!this.paused) return;
+    this.paused = false;
+    if (this.pausedSprite && this.moving) {
+      const sprite = this.pausedSprite;
+      this.pausedSprite = null;
+      this.stepToNextTile(sprite);
+    }
+  }
+
   stop(): void {
     this.path = [];
     this.moving = false;
+    this.paused = false;
+    this.pausedSprite = null;
+    this.onArrival = null;
   }
 }

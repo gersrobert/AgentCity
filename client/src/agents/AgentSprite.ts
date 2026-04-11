@@ -21,7 +21,6 @@ export default class AgentSprite {
   private circle: Phaser.GameObjects.Graphics;
   private nameLabel: Phaser.GameObjects.Text;
   private moodDot: Phaser.GameObjects.Graphics;
-  private suspicionRing: Phaser.GameObjects.Graphics;
   private thoughtContainer: Phaser.GameObjects.Container | null = null;
   private thoughtTimer: Phaser.Time.TimerEvent | null = null;
 
@@ -61,10 +60,6 @@ export default class AgentSprite {
     this.nameLabel.setOrigin(0.5, 1);
     this.nameLabel.setDepth(11);
 
-    // Suspicion ring (drawn behind the agent body)
-    this.suspicionRing = scene.add.graphics();
-    this.suspicionRing.setDepth(9);
-
     // Mood dot
     this.moodDot = scene.add.graphics();
     this.moodDot.setDepth(11);
@@ -99,7 +94,6 @@ export default class AgentSprite {
     this.x = x;
     this.y = y;
     this.circle.setPosition(x, y);
-    this.suspicionRing.setPosition(x, y);
     this.nameLabel.setPosition(x, y - 22);
     this.moodDot.setPosition(x + 12, y - 12);
 
@@ -115,14 +109,6 @@ export default class AgentSprite {
     this.moodDot.fillCircle(0, 0, 5);
     this.moodDot.lineStyle(1.5, 0x000000, 1);
     this.moodDot.strokeCircle(0, 0, 5);
-  }
-
-  updateSuspicionIndicator(level: number): void {
-    this.suspicionRing.clear();
-    if (level <= 0) return;
-    const alpha = Math.min(level / 100, 1) * 0.85;
-    this.suspicionRing.lineStyle(3, 0xff4400, alpha);
-    this.suspicionRing.strokeCircle(0, 0, TILE_SIZE * 0.75);
   }
 
   showThoughtBubble(text: string, suspicious = false): void {
@@ -191,6 +177,5 @@ export default class AgentSprite {
     this.moodDot.destroy();
     if (this.thoughtContainer) this.thoughtContainer.destroy();
     if (this.thoughtTimer) this.thoughtTimer.destroy();
-    this.suspicionRing.destroy();
   }
 }

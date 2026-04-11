@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import CityMap from "../map/CityMap";
 import AgentManager from "../agents/AgentManager";
+import PlayerController from "../player/PlayerController";
 import {
   GAME_WIDTH,
   GAME_HEIGHT,
@@ -15,6 +16,7 @@ import { NAMED_LOCATIONS } from "../map/mapData";
 export default class GameScene extends Phaser.Scene {
   private cityMap!: CityMap;
   private agentManager!: AgentManager;
+  private player!: PlayerController;
   private selectedAgentId: string | null = null;
 
   constructor() {
@@ -28,12 +30,7 @@ export default class GameScene extends Phaser.Scene {
     // Camera viewport excludes the right panel
     const mapAreaWidth = GAME_WIDTH - RIGHT_PANEL_WIDTH;
     this.cameras.main.setViewport(0, 0, mapAreaWidth, GAME_HEIGHT);
-
-    // Zoom so the whole map fits in the viewport, then center it
-    const zoom = Math.min(mapAreaWidth / worldWidth, GAME_HEIGHT / worldHeight);
-    this.cameras.main.setZoom(zoom);
     this.cameras.main.setBounds(0, 0, worldWidth, worldHeight);
-    this.cameras.main.centerOn(worldWidth / 2, worldHeight / 2);
 
     // Create map
     this.cityMap = new CityMap();
@@ -46,9 +43,22 @@ export default class GameScene extends Phaser.Scene {
     this.agentManager = new AgentManager(this, this.cityMap);
     this.agentManager.init();
 
+    // Create player — spawns at centre road intersection, camera follows
+    this.player = new PlayerController(this, this.cityMap, this.agentManager, { tileX: 16, tileY: 16 });
+
     // Listen for agent selection
     this.events.on("AGENT_SELECTED", (agent: AgentState) => {
       this.selectedAgentId = agent.id;
+    });
+
+    // Resume agent movement after dismiss
+    this.events.on("AGENT_RESUME", (agentId: string) => {
+      this.agentManager.resumeAgent(agentId);
+    });
+
+    // Confiscation: stop current movement, re-trigger a new decision
+    this.events.on("RETRIGGER_AGENT", (agentId: string) => {
+      this.agentManager.retriggerAgent(agentId);
     });
 
     // Listen for world events from UIScene
@@ -62,6 +72,7 @@ export default class GameScene extends Phaser.Scene {
 
   update(time: number, delta: number): void {
     this.agentManager.update(time, delta);
+    this.player.update();
   }
 
   private drawLocationLabels(): void {

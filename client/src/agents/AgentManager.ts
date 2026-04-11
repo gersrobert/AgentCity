@@ -9,16 +9,24 @@ import {
   AGENT_DECISION_INTERVAL_MS,
   AGENT_DECISION_STAGGER_MS,
   NEARBY_AGENT_TILE_RADIUS,
-  TRADE_HISTORY_MAX_LENGTH,
-  SUSPICION_INCREASE_PER_TRADE,
-  SUSPICION_DECREASE_PER_TRADE,
+  TRACE_AGENT_DECISIONS,
 } from '../config';
+
+export interface AgentDecisionTrace {
+  agentName: string;
+  targetLocationId: string;
+  thought: string;
+  sold: { goods: string; quantity: number; profit: number } | null;
+  bought: { goods: string; quantity: number; cost: number } | null;
+}
 import { getBuyListing, getSellListings } from '../../../shared/market';
+
 
 interface ManagedAgent {
   state: AgentState;
   sprite: AgentSprite;
   movement: MovementController;
+  isAtLocation: boolean;
 }
 
 export default class AgentManager {
@@ -36,18 +44,7 @@ export default class AgentManager {
       const sprite = new AgentSprite(this.scene, agentState, i);
       const movement = new MovementController(this.scene, this.map);
 
-      // Make sprite clickable
-      sprite.getCircle().on('pointerdown', () => {
-        this.scene.events.emit('AGENT_SELECTED', agentState);
-      });
-      sprite.getCircle().on('pointerover', () => {
-        this.scene.input.setDefaultCursor('pointer');
-      });
-      sprite.getCircle().on('pointerout', () => {
-        this.scene.input.setDefaultCursor('default');
-      });
-
-      const managed: ManagedAgent = { state: agentState, sprite, movement };
+      const managed: ManagedAgent = { state: agentState, sprite, movement, isAtLocation: true };
       this.agents.push(managed);
 
       // Stagger first decision so agents don't all call the API simultaneously
@@ -62,7 +59,7 @@ export default class AgentManager {
     // Nothing to poll here.
   }
 
-  private async triggerDecision(managed: ManagedAgent): Promise<void> {
+  private async triggerDecision(managed: ManagedAgent, atLocation = false): Promise<void> {
     const { state, sprite, movement } = managed;
     state.pendingDecision = true;
     state.lastDecisionAt = Date.now();
@@ -83,10 +80,10 @@ export default class AgentManager {
 
       const decision = await backendClient.agentThink(request);
 
-      // Sell current inventory at this location (if it buys the item), then buy
+      // Only sell/buy when the agent physically arrived at a location
       const currentLocation = state.targetLocationId;
-      this.executeSell(managed, currentLocation);
-      this.executeBuy(managed, currentLocation, decision.purchase);
+      const soldRecord = atLocation ? this.executeSell(managed, currentLocation) : null;
+      const boughtItem = atLocation ? this.executeBuy(managed, currentLocation, decision.purchase) : null;
 
       // Apply decision to state
       state.mood = decision.newMood;
@@ -97,18 +94,31 @@ export default class AgentManager {
       // Update visuals
       sprite.updateMoodColor(state.mood);
       sprite.showThoughtBubble(decision.thought, state.inventory?.isIllegal ?? false);
-      sprite.updateSuspicionIndicator(state.suspicionLevel);
 
       // Update inspector if this agent is selected
       this.scene.events.emit('AGENT_UPDATED', state);
+
+      // Trace log
+      if (TRACE_AGENT_DECISIONS) {
+        const trace: AgentDecisionTrace = {
+          agentName: state.name,
+          targetLocationId: decision.targetLocationId,
+          thought: decision.thought,
+          sold: soldRecord,
+          bought: boughtItem,
+        };
+        this.scene.events.emit('AGENT_DECISION', trace);
+      }
 
       // Move to target; trigger next decision immediately on arrival
       const location = this.map.getLocation(decision.targetLocationId);
       if (location) {
         const fromTile = this.map.worldToTile(sprite.x, sprite.y);
+        managed.isAtLocation = false;
         movement.walkTo(sprite, fromTile, location.tile, () => {
+          managed.isAtLocation = true;
           state.position = location.tile;
-          this.triggerDecision(managed);
+          this.triggerDecision(managed, true);
         });
       } else {
         // Unknown location — retry after a short delay
@@ -127,58 +137,37 @@ export default class AgentManager {
     }
   }
 
-  /**
-   * Sell current inventory at this location — only if the location buys that item.
-   * If the location doesn't buy it, the agent keeps their goods and moves on.
-   */
-  private executeSell(managed: ManagedAgent, locationId: string | null): void {
+  /** Sell current inventory if this location buys it. Returns sale info or null. */
+  private executeSell(managed: ManagedAgent, locationId: string | null): AgentDecisionTrace['sold'] {
     const { state } = managed;
-    if (!state.inventory || !locationId) return;
+    if (!state.inventory || !locationId) return null;
 
     const listing = getBuyListing(locationId, state.inventory.name);
-    if (!listing) return; // this location doesn't buy what we're carrying
+    if (!listing) return null;
 
     const revenue = listing.price * state.inventory.quantity;
     const cost = state.inventory.buyPrice * state.inventory.quantity;
     const profit = revenue - cost;
 
-    state.tradeHistory.push({
-      locationId,
-      goods: state.inventory.name,
-      quantity: state.inventory.quantity,
-      profit,
-      isIllegal: state.inventory.isIllegal,
-      timestamp: Date.now(),
-    });
-    if (state.tradeHistory.length > TRADE_HISTORY_MAX_LENGTH) {
-      state.tradeHistory.shift();
-    }
-
+    const result = { goods: state.inventory.name, quantity: state.inventory.quantity, profit };
     state.cash += revenue;
     state.inventory = null;
 
-    if (listing.isIllegal) {
-      state.suspicionLevel = Math.min(100, state.suspicionLevel + SUSPICION_INCREASE_PER_TRADE);
-    } else {
-      state.suspicionLevel = Math.max(0, state.suspicionLevel - SUSPICION_DECREASE_PER_TRADE);
-    }
+    return result;
   }
 
-  /**
-   * Buy goods based on Claude's purchase decision.
-   * Only executes if the agent has empty hands and the item is actually sold here.
-   */
-  private executeBuy(managed: ManagedAgent, locationId: string | null, purchase: { itemName: string; quantity: number } | null): void {
+  /** Buy goods from Claude's decision. Returns purchase info or null. */
+  private executeBuy(managed: ManagedAgent, locationId: string | null, purchase: { itemName: string; quantity: number } | null): AgentDecisionTrace['bought'] {
     const { state } = managed;
-    if (!purchase || purchase.itemName === 'none' || !locationId) return;
-    if (state.inventory) return; // already carrying something
+    if (!purchase || purchase.itemName === 'none' || !locationId) return null;
+    if (state.inventory) return null;
 
     const listing = getSellListings(locationId).find(l => l.itemName === purchase.itemName);
-    if (!listing) return; // item not sold here
+    if (!listing) return null;
 
     const qty = Math.min(Math.max(1, purchase.quantity), 5);
     const totalCost = listing.price * qty;
-    if (state.cash < totalCost) return;
+    if (state.cash < totalCost) return null;
 
     state.cash -= totalCost;
     state.inventory = {
@@ -187,6 +176,8 @@ export default class AgentManager {
       isIllegal: listing.isIllegal,
       buyPrice: listing.price,
     };
+
+    return { goods: listing.itemName, quantity: qty, cost: totalCost };
   }
 
   private getNearbyAgents(
@@ -200,6 +191,36 @@ export default class AgentManager {
         return dx + dy <= NEARBY_AGENT_TILE_RADIUS;
       })
       .map(({ id, name, mood, currentGoal }) => ({ id, name, mood, currentGoal }));
+  }
+
+  isAgentInterceptable(agentId: string): boolean {
+    const m = this.agents.find(a => a.state.id === agentId);
+    return m !== undefined && !m.isAtLocation && !m.movement.isPaused();
+  }
+
+  getAgentLiveTile(agentId: string): { tileX: number; tileY: number } | null {
+    const m = this.agents.find(a => a.state.id === agentId);
+    if (!m) return null;
+    return this.map.worldToTile(m.sprite.x, m.sprite.y);
+  }
+
+  pauseAgent(agentId: string): void {
+    const m = this.agents.find(a => a.state.id === agentId);
+    if (m) m.movement.pause();
+  }
+
+  resumeAgent(agentId: string): void {
+    const m = this.agents.find(a => a.state.id === agentId);
+    if (m) m.movement.resume();
+  }
+
+  retriggerAgent(agentId: string): void {
+    const m = this.agents.find(a => a.state.id === agentId);
+    if (!m) return;
+    m.movement.stop();
+    m.isAtLocation = false;
+    m.state.targetLocationId = null;
+    this.triggerDecision(m);
   }
 
   getAgents(): ManagedAgent[] {

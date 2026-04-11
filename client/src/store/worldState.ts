@@ -21,8 +21,6 @@ const initialAgents: AgentState[] = [
     pendingDecision: false,
     cash: randomCash(),
     inventory: null,
-    tradeHistory: [],
-    suspicionLevel: 0,
   },
 ];
 
