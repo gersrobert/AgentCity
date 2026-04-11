@@ -2,7 +2,9 @@ import Phaser from 'phaser';
 import InspectorPanel from '../ui/InspectorPanel';
 import ChatPanel from '../ui/ChatPanel';
 import type { AgentState } from '@shared/types';
-import { GAME_WIDTH, GAME_HEIGHT, RIGHT_PANEL_WIDTH } from '../config';
+import { GAME_WIDTH, GAME_HEIGHT, RIGHT_PANEL_WIDTH, PLAYER_STARTING_BUDGET, ARREST_FALSE_PENALTY } from '../config';
+import { worldState, applyBudgetChange, isGameOver } from '../store/worldState';
+import type { AgentDecisionTrace } from '../agents/AgentManager';
 
 const RIGHT_PANEL_HTML = `
 <div id="right-panel" style="
@@ -29,7 +31,24 @@ const RIGHT_PANEL_HTML = `
     flex-shrink: 0;
   ">AgentCity</div>
 
-  <!-- Inspector section (hidden until agent clicked) -->
+  <!-- Police Budget Bar -->
+  <div id="budget-bar" style="
+    padding: 8px 14px;
+    background: #1a1a3e;
+    border-bottom: 1px solid #6644aa;
+    flex-shrink: 0;
+  ">
+    <div style="font-size:9px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">Investigation Budget</div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <div id="budget-amount" style="font-size:14px; color:#ffdd44; font-weight:bold; min-width:48px;">$${PLAYER_STARTING_BUDGET}</div>
+      <div style="flex:1; height:6px; background:#333355; border-radius:3px; overflow:hidden;">
+        <div id="budget-fill" style="height:100%; width:100%; background:#44aa44; border-radius:3px; transition: width 0.3s, background 0.3s;"></div>
+      </div>
+    </div>
+    <div style="font-size:8px; color:#555588; margin-top:4px;">← → cycle planets · E inspect agent</div>
+  </div>
+
+  <!-- Inspector section (hidden until agent selected) -->
   <div id="inspector-section" style="
     display: none;
     flex-direction: column;
@@ -56,7 +75,36 @@ const RIGHT_PANEL_HTML = `
     <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Goal</div>
     <div id="inspector-goal" style="font-size:10px; color:#cccccc; margin-bottom:10px;"></div>
     <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Thinking</div>
-    <div id="inspector-thought" style="font-size:10px; color:#ffffcc; font-style:italic; line-height:1.4;"></div>
+    <div id="inspector-thought" style="font-size:10px; color:#ffffcc; font-style:italic; line-height:1.4; margin-bottom:10px;"></div>
+    <div id="inspector-cash-row" style="display:none; font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Cargo &amp; Credits</div>
+    <div id="inspector-cash" style="font-size:12px; color:#ffdd44; margin-bottom:10px; display:none;"></div>
+    <div style="display:flex; gap:6px; margin-bottom:10px;">
+      <button id="inspector-dismiss-btn" style="
+        flex: 1;
+        background: #333333;
+        color: #aaaaaa;
+        border: 1px solid #555566;
+        border-radius: 4px;
+        padding: 5px 8px;
+        font-size: 10px;
+        cursor: pointer;
+        font-family: monospace;
+      ">✕ Dismiss</button>
+      <button id="inspector-inspect-btn" style="
+        flex: 1;
+        background: #333388;
+        color: #ffffff;
+        border: 1px solid #6644aa;
+        border-radius: 4px;
+        padding: 5px 8px;
+        font-size: 10px;
+        cursor: pointer;
+        font-family: monospace;
+      ">Scan Cargo</button>
+    </div>
+    <div id="inspector-result" style="display:none; margin-bottom:8px;">
+      <div id="inspector-result-text" style="font-size:10px; color:#ffffcc; line-height:1.5;"></div>
+    </div>
   </div>
 
   <!-- Chat section -->
@@ -86,7 +134,7 @@ const RIGHT_PANEL_HTML = `
         <input
           id="gm-input"
           type="text"
-          placeholder="Command the city..."
+          placeholder="Command the universe..."
           style="
             flex: 1;
             background: #0d0d20;
@@ -121,23 +169,30 @@ export default class UIScene extends Phaser.Scene {
   private inspectorPanel!: InspectorPanel;
   private chatPanel!: ChatPanel;
   private selectedAgentId: string | null = null;
+  private budgetAmountEl!: HTMLElement;
+  private budgetFillEl!: HTMLElement;
 
   constructor() {
     super({ key: 'UIScene' });
   }
 
   create(): void {
-    // Create the right panel as a DOM element anchored at the right edge
     const panelDom = this.add.dom(
       GAME_WIDTH - RIGHT_PANEL_WIDTH / 2,
-      GAME_HEIGHT / 2
+      GAME_HEIGHT / 2,
     ).createFromHTML(RIGHT_PANEL_HTML);
 
     const container = panelDom.node as HTMLElement;
 
-    this.inspectorPanel = new InspectorPanel(container, () => {
-      this.selectedAgentId = null;
-    });
+    this.budgetAmountEl = container.querySelector('#budget-amount') as HTMLElement;
+    this.budgetFillEl = container.querySelector('#budget-fill') as HTMLElement;
+
+    this.inspectorPanel = new InspectorPanel(
+      container,
+      () => { this.selectedAgentId = null; },
+      (agentId: string) => { this.handleInspect(agentId); },
+      (agentId: string) => { this.handleDismiss(agentId); },
+    );
     this.chatPanel = new ChatPanel(this, container);
 
     const gameScene = this.scene.get('GameScene');
@@ -153,7 +208,14 @@ export default class UIScene extends Phaser.Scene {
       }
     });
 
+    gameScene.events.on('AGENT_DECISION', (trace: AgentDecisionTrace) => {
+      this.chatPanel.logAgentDecision(trace);
+    });
+
     this.input.keyboard!.on('keydown-ESC', () => {
+      if (this.selectedAgentId) {
+        gameScene.events.emit('AGENT_RESUME', this.selectedAgentId);
+      }
       this.inspectorPanel.hide();
       this.selectedAgentId = null;
     });
@@ -162,5 +224,68 @@ export default class UIScene extends Phaser.Scene {
     this.events.on('WORLD_EVENT', (event: unknown) => {
       gameScene.events.emit('WORLD_EVENT', event);
     });
+  }
+
+  private handleDismiss(agentId: string): void {
+    this.scene.get('GameScene').events.emit('AGENT_RESUME', agentId);
+    this.inspectorPanel.hide();
+    this.selectedAgentId = null;
+  }
+
+  private handleInspect(agentId: string): void {
+    const agent = worldState.agents.find(a => a.id === agentId);
+    if (!agent) return;
+
+    const gameScene = this.scene.get('GameScene');
+    const isIllegal = agent.inventory?.isIllegal ?? false;
+
+    if (isIllegal) {
+      const seized = Math.floor(agent.cash / 2);
+      this.inspectorPanel.showInspectResult(agent, seized);
+      agent.inventory = null;
+      agent.cash -= seized;
+      applyBudgetChange(seized);
+      this.updateBudget(worldState.playerBudget);
+      gameScene.events.emit('RETRIGGER_AGENT', agentId);
+    } else {
+      const penalty = -ARREST_FALSE_PENALTY;
+      this.inspectorPanel.showInspectResult(agent, penalty);
+      applyBudgetChange(penalty);
+      this.updateBudget(worldState.playerBudget);
+      gameScene.events.emit('AGENT_RESUME', agentId);
+    }
+
+    if (isGameOver()) {
+      this.triggerGameOver();
+    }
+  }
+
+  private updateBudget(amount: number): void {
+    this.budgetAmountEl.textContent = '$' + amount;
+    const pct = Math.max(0, (amount / PLAYER_STARTING_BUDGET) * 100);
+    this.budgetFillEl.style.width = pct + '%';
+    this.budgetFillEl.style.background = pct > 50 ? '#44aa44' : pct > 25 ? '#ffaa00' : '#ff4444';
+  }
+
+  private triggerGameOver(): void {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.88);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      font-family: monospace; color: white; z-index: 9999;
+    `;
+    overlay.innerHTML = `
+      <div style="font-size:32px; color:#ff4444; margin-bottom:16px;">BUDGET DEPLETED</div>
+      <div style="font-size:14px; color:#aaaaaa; margin-bottom:24px;">The investigation has been defunded.</div>
+      <button onclick="location.reload()" style="
+        background:#6644aa; color:#fff; border:none;
+        border-radius:6px; padding:10px 24px; font-size:14px;
+        cursor:pointer; font-family:monospace;
+      ">Try Again</button>
+    `;
+    document.body.appendChild(overlay);
+    this.scene.pause('GameScene');
   }
 }

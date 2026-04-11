@@ -24,3 +24,16 @@ export const NEARBY_AGENT_TILE_RADIUS = 5;
 export const STAR_COUNT = 180;
 export const TWINKLE_STAR_COUNT = 30;
 export const NEBULA_OPACITY = 0.07;
+
+// Set to false to silence agent decision logs in the GM panel
+export const TRACE_AGENT_DECISIONS = true;
+
+// ─── Player ───────────────────────────────────────────────────────────────────
+// Player can travel to a neighbour planet with LEFT/RIGHT arrow keys
+// Press E when on same planet as an agent to inspect them
+export const PLAYER_INSPECT_RADIUS_SAME_PLANET = true;
+
+// ─── Game economy ─────────────────────────────────────────────────────────────
+export const PLAYER_STARTING_BUDGET = 500;
+export const ARREST_CORRECT_REWARD = 200;
+export const ARREST_FALSE_PENALTY = 150;

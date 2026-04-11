@@ -7,44 +7,57 @@ import type {
   Mood,
   NamedLocation,
 } from "../../../shared/types.js";
+import { getSellListings, getBuyListing, getBuyersFor, MARKET } from "../../../shared/market.js";
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
 
-function buildDecideActionTool(locations: NamedLocation[]): Anthropic.Tool {
+function buildDecideActionTool(locations: NamedLocation[], currentLocationId: string | null): Anthropic.Tool {
+  const availableItems = currentLocationId ? getSellListings(currentLocationId).map(l => l.itemName) : [];
+
   return {
     name: "decide_action",
     description:
-      "Decide where to move next, update your mood and goal, and emit a thought bubble.",
+      "Decide which planet to travel to next, what to trade here (if anything), update your mood and goal, and emit a thought bubble.",
     input_schema: {
       type: "object" as const,
       properties: {
         targetLocationId: {
           type: "string",
-          description: "The id of the location to walk toward.",
+          description: "The id of the planet to travel to next.",
           enum: locations.map((l) => l.id),
+        },
+        purchase: {
+          type: "object",
+          description: availableItems.length > 0
+            ? "Item to acquire here before departing. Omit or null if nothing worthwhile to buy."
+            : "No goods available at this planet. Omit this field.",
+          properties: {
+            itemName: {
+              type: "string",
+              enum: availableItems.length > 0 ? availableItems : ["none"],
+              description: "Name of the item to acquire.",
+            },
+            quantity: {
+              type: "integer",
+              minimum: 1,
+              maximum: 5,
+              description: "Number of units to acquire.",
+            },
+          },
+          required: ["itemName", "quantity"],
         },
         newMood: {
           type: "string",
-          enum: [
-            "happy",
-            "anxious",
-            "curious",
-            "bored",
-            "excited",
-            "sad",
-            "angry",
-            "content",
-          ],
+          enum: ["happy", "anxious", "curious", "bored", "excited", "sad", "angry", "content"],
         },
         newGoal: {
           type: "string",
-          description:
-            "A short phrase describing what you are trying to do (max 10 words).",
+          description: "A short phrase describing your current goal (max 10 words).",
         },
         thought: {
           type: "string",
           description:
-            "A single expressive sentence you would say aloud (max 12 words). Quirky and in character.",
+            "A single expressive sentence (max 12 words). Quirky and in character. If carrying something risky, be vague and poetic — never name it.",
         },
       },
       required: ["targetLocationId", "newMood", "newGoal", "thought"],
@@ -62,40 +75,29 @@ const APPLY_WORLD_EVENT_TOOL: Anthropic.Tool = {
       narrative: {
         type: "string",
         description:
-          "A short narrative description of what happened (1–3 sentences, quirky city-sim tone).",
+          "A short narrative description of what happened (1–3 sentences, quirky space sim tone).",
       },
       weather: {
         type: "string",
-        enum: ["sunny", "cloudy", "raining", "stormy", "foggy", "snowing"],
-        description: "New weather condition, if changed.",
+        enum: ["cosmic calm", "solar wind", "ion storm", "nebula haze", "asteroid shower", "deep silence"],
+        description: "New cosmic weather condition, if changed.",
       },
       timeOfDay: {
         type: "string",
-        enum: ["dawn", "morning", "afternoon", "evening", "night"],
-        description: "New time of day, if changed.",
+        enum: ["eternal night", "solar dawn", "star noon", "twilight drift", "void hour"],
+        description: "New cosmic time condition, if changed.",
       },
       activeEvents: {
         type: "array",
         items: { type: "string" },
-        description:
-          "New list of active world events (replaces current list). Short phrases.",
+        description: "New list of active cosmic events (replaces current list). Short phrases.",
       },
       agentMoodOverrides: {
         type: "object",
-        description:
-          "Map of agentId to new mood. Only include agents whose mood should change.",
+        description: "Map of agentId to new mood. Only include agents whose mood should change.",
         additionalProperties: {
           type: "string",
-          enum: [
-            "happy",
-            "anxious",
-            "curious",
-            "bored",
-            "excited",
-            "sad",
-            "angry",
-            "content",
-          ],
+          enum: ["happy", "anxious", "curious", "bored", "excited", "sad", "angry", "content"],
         },
       },
     },
@@ -109,7 +111,7 @@ function buildAgentPrompt(req: AgentThinkRequest): string {
   const { agent, worldState, nearbyAgents } = req;
   const nearbyText =
     nearbyAgents.length === 0
-      ? "(nobody nearby)"
+      ? "(nobody in the vicinity)"
       : nearbyAgents
           .map((a) => `- ${a.name} (${a.mood}): ${a.currentGoal}`)
           .join("\n");
@@ -119,7 +121,9 @@ function buildAgentPrompt(req: AgentThinkRequest): string {
       ? `- Active events: ${worldState.activeEvents.join(", ")}`
       : "";
 
-  return `You are ${agent.name}, a sentient being drifting through a strange and beautiful universe.
+  const currentPlanet = agent.currentPlanetId;
+
+  return `You are ${agent.name}, a sentient being drifting through a strange and beautiful universe. You trade exotic goods between planets.
 
 YOUR PERSONALITY:
 ${agent.personality}
@@ -128,20 +132,55 @@ YOUR CURRENT STATE:
 - Mood: ${agent.mood}
 - Current goal: ${agent.currentGoal}
 - Last thought: "${agent.currentThought}"
-- Currently on planet: ${agent.currentPlanetId}
+- Currently orbiting: ${currentPlanet}
+- Credits: $${agent.cash}
+- Cargo hold: ${agent.inventory ? `${agent.inventory.quantity}× ${agent.inventory.name} (paid $${agent.inventory.buyPrice * agent.inventory.quantity})` : 'empty'}
 
-THE WORLD RIGHT NOW:
-- Weather: ${worldState.weather}
-- Time of day: ${worldState.timeOfDay}
+AT THIS PLANET (${currentPlanet}):
+FOR SALE (you can acquire):
+${(() => {
+  const listings = getSellListings(currentPlanet);
+  if (listings.length === 0) return '  (nothing for trade here)';
+  return listings.map(l => {
+    const buyers = getBuyersFor(l.itemName);
+    const best = buyers[0];
+    const margin = best ? best.price - l.price : 0;
+    const note = best ? `best buyer: ${best.locationId} pays $${best.price} (+$${margin})` : 'no known buyers';
+    return `  - ${l.itemName}: $${l.price}/unit  [${note}]`;
+  }).join('\n');
+})()}
+WILL ACCEPT FROM YOU:
+${(() => {
+  const inv = agent.inventory;
+  if (!inv) return '  (your cargo hold is empty)';
+  const listing = getBuyListing(currentPlanet, inv.name);
+  if (!listing) return `  (does not trade ${inv.name})`;
+  const revenue = listing.price * inv.quantity;
+  const cost = inv.buyPrice * inv.quantity;
+  return `  - ${inv.quantity}× ${inv.name} → $${listing.price}/unit = $${revenue} (paid $${cost}, profit +$${revenue - cost})`;
+})()}
+
+ALL MARKET PRICES:
+${Object.entries(MARKET).map(([locId, mkt]) => {
+  const sells = mkt.sells.map(l => `${l.itemName} $${l.price}`).join(', ');
+  const buys  = mkt.buys.map(l => `${l.itemName} $${l.price}`).join(', ');
+  return `  ${locId}: offers [${sells || 'nothing'}]  |  accepts [${buys || 'nothing'}]`;
+}).join('\n')}
+
+You can carry only one item type (1–5 units). High-value items may attract unwanted attention — be discreet.
+
+THE UNIVERSE RIGHT NOW:
+- Cosmic weather: ${worldState.weather}
+- Current phase: ${worldState.timeOfDay}
 ${eventsText}
 
-PLACES YOU CAN GO:
+PLANETS YOU CAN REACH:
 ${worldState.locations.map((l) => `- ${l.id}: ${l.label} — ${l.description}`).join("\n")}
 
-NEARBY CHARACTERS:
+NEARBY TRAVELLERS:
 ${nearbyText}
 
-Decide where to go next and what to think. Stay in character. Use the decide_action tool.`;
+Choose your next destination and what to trade. Stay in character. Use the decide_action tool.`;
 }
 
 function buildGMPrompt(req: GMChatRequest): string {
@@ -150,19 +189,19 @@ function buildGMPrompt(req: GMChatRequest): string {
     .map((a) => `${a.name} (${a.mood})`)
     .join(", ");
 
-  return `You are the narrator and game master of AgentCity, a quirky pixel-art city simulation.
-The player has issued a command or request. Interpret it creatively and apply changes to the world.
+  return `You are the narrator and game master of AgentCity, a quirky space simulation where sentient beings trade goods between planets.
+The player has issued a command or request. Interpret it creatively and apply changes to the universe.
 
-CURRENT WORLD STATE:
-- Weather: ${worldState.weather}
-- Time: ${worldState.timeOfDay}
+CURRENT UNIVERSE STATE:
+- Cosmic weather: ${worldState.weather}
+- Current phase: ${worldState.timeOfDay}
 - Active events: ${worldState.activeEvents.join(", ") || "none"}
-- Agents present: ${agentsText}
+- Travellers present: ${agentsText}
 
 PLAYER MESSAGE:
 "${playerMessage}"
 
-Use the apply_world_event tool to make changes real. Be creative but keep it grounded in the city sim aesthetic.`;
+Use the apply_world_event tool to make changes real. Be creative and keep it in the space sim aesthetic.`;
 }
 
 // ─── Service functions ────────────────────────────────────────────────────────
@@ -187,10 +226,10 @@ export async function getAgentDecision(
 
   const response = await client.messages.create({
     model: AGENT_MODEL,
-    max_tokens: 256,
-    system: `You are ${req.agent.name}, a sentient being exploring a strange universe of planets. Always respond using the decide_action tool.`,
+    max_tokens: 300,
+    system: `You are ${req.agent.name}, a sentient trader drifting through a strange universe of planets. Always respond using the decide_action tool.`,
     messages: [{ role: "user", content: buildAgentPrompt(req) }],
-    tools: [buildDecideActionTool(req.worldState.locations)],
+    tools: [buildDecideActionTool(req.worldState.locations, req.agent.currentPlanetId)],
     tool_choice: { type: "tool", name: "decide_action" },
   });
 
@@ -199,12 +238,20 @@ export async function getAgentDecision(
     throw new Error("Claude did not return a tool_use block");
   }
 
-  const input = toolUse.input as AgentDecision;
+  const input = toolUse.input as {
+    targetLocationId: string;
+    newMood: string;
+    newGoal: string;
+    thought: string;
+    purchase?: { itemName: string; quantity: number } | null;
+  };
+
   return {
     targetLocationId: input.targetLocationId,
     newMood: input.newMood as Mood,
     newGoal: input.newGoal,
     thought: input.thought,
+    purchase: input.purchase ?? null,
   };
 }
 
@@ -218,7 +265,7 @@ export async function processGMMessage(
     model: GM_MODEL,
     max_tokens: 512,
     system:
-      "You are the game master of AgentCity. Always respond using the apply_world_event tool.",
+      "You are the game master of AgentCity, a space trading simulation. Always respond using the apply_world_event tool.",
     messages: [{ role: "user", content: buildGMPrompt(req) }],
     tools: [APPLY_WORLD_EVENT_TOOL],
     tool_choice: { type: "tool", name: "apply_world_event" },

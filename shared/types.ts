@@ -18,6 +18,16 @@ export interface WorldState {
   timeOfDay: string;
   activeEvents: string[];
   agents: AgentState[];
+  playerBudget: number;
+}
+
+// ─── Trading ─────────────────────────────────────────────────────────────────
+
+export interface InventoryItem {
+  name: string;
+  quantity: number;
+  isIllegal: boolean;
+  buyPrice: number;
 }
 
 // ─── Agents ──────────────────────────────────────────────────────────────────
@@ -44,6 +54,8 @@ export interface AgentState {
   targetLocationId: string | null;
   lastDecisionAt: number;
   pendingDecision: boolean;
+  cash: number;
+  inventory: InventoryItem | null;
 }
 
 // ─── AI Loop ─────────────────────────────────────────────────────────────────
@@ -59,6 +71,7 @@ export interface AgentDecision {
   newMood: Mood;
   newGoal: string;
   thought: string;
+  purchase: { itemName: string; quantity: number } | null;
 }
 
 // ─── Game Master ─────────────────────────────────────────────────────────────

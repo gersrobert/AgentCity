@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import type { WorldEvent } from '@shared/types';
 import { worldState } from '../store/worldState';
 import * as backendClient from '../api/backendClient';
+import type { AgentDecisionTrace } from '../agents/AgentManager';
 
 export default class ChatPanel {
   private scene: Phaser.Scene;
@@ -22,7 +23,7 @@ export default class ChatPanel {
       if (e.key === 'Enter') this.handleSubmit();
     });
 
-    this.addLog('system', 'Game master ready. Tell the city what to do...');
+    this.addLog('system', 'Game master ready. Command the universe...');
   }
 
   private handleSubmit(): void {
@@ -63,6 +64,36 @@ export default class ChatPanel {
       }
     }
     this.scene.events.emit('WORLD_EVENT', event);
+  }
+
+  logAgentDecision(trace: AgentDecisionTrace): void {
+    const parts: string[] = [];
+
+    if (trace.sold) {
+      const sign = trace.sold.profit >= 0 ? '+' : '';
+      parts.push(`sold ${trace.sold.quantity}× ${this.escapeHtml(trace.sold.goods)} (${sign}$${trace.sold.profit})`);
+    }
+    if (trace.bought) {
+      parts.push(`bought ${trace.bought.quantity}× ${this.escapeHtml(trace.bought.goods)} ($${trace.bought.cost})`);
+    }
+    parts.push(`→ <em>${this.escapeHtml(trace.targetLocationId)}</em>`);
+
+    const line = document.createElement('div');
+    line.style.cssText = `
+      margin-bottom: 6px;
+      font-size: 10px;
+      line-height: 1.4;
+      color: #bbbbbb;
+      border-left: 2px solid #444466;
+      padding-left: 6px;
+    `;
+    line.innerHTML =
+      `<span style="color:#ffcc88;font-weight:bold">${this.escapeHtml(trace.agentName)}</span> ` +
+      parts.join(' · ') +
+      `<br><span style="color:#666688;font-style:italic">"${this.escapeHtml(trace.thought)}"</span>`;
+
+    this.logEl.appendChild(line);
+    this.logEl.scrollTop = this.logEl.scrollHeight;
   }
 
   private addLog(type: 'player' | 'gm' | 'system' | 'error', message: string): void {

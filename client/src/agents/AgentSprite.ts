@@ -182,7 +182,7 @@ export default class AgentSprite {
 
   // ─── Thought bubble ───────────────────────────────────────────────────────
 
-  showThoughtBubble(text: string): void {
+  showThoughtBubble(text: string, isIllegal = false): void {
     if (this.thoughtContainer) {
       this.thoughtContainer.destroy();
       this.thoughtContainer = null;
@@ -194,6 +194,9 @@ export default class AgentSprite {
 
     const padding = 8;
     const maxWidth = 150;
+    // Illegal carriers get a red-tinted bubble as a subtle visual tell
+    const bgColor = isIllegal ? 0xffddcc : 0xeeeeff;
+    const borderColor = isIllegal ? 0xff6644 : this.orbColor;
 
     const bubbleText = this.scene.add.text(0, 0, text, {
       fontSize: '9px',
@@ -208,14 +211,14 @@ export default class AgentSprite {
     const th = bubbleText.height + padding * 2;
 
     const bg = this.scene.add.graphics();
-    bg.fillStyle(0xeeeeff, 0.92);
+    bg.fillStyle(bgColor, 0.92);
     bg.fillRoundedRect(-tw / 2, -th / 2, tw, th, 5);
-    bg.lineStyle(1.5, this.orbColor, 0.8);
+    bg.lineStyle(1.5, borderColor, 0.8);
     bg.strokeRoundedRect(-tw / 2, -th / 2, tw, th, 5);
     // Signal tail toward the orb
-    bg.fillStyle(0xeeeeff, 0.92);
+    bg.fillStyle(bgColor, 0.92);
     bg.fillTriangle(-3, th / 2, 3, th / 2, 0, th / 2 + 7);
-    bg.lineStyle(1.5, this.orbColor, 0.8);
+    bg.lineStyle(1.5, borderColor, 0.8);
     bg.strokeTriangle(-3, th / 2, 3, th / 2, 0, th / 2 + 7);
 
     this.thoughtContainer = this.scene.add.container(this.x, this.y - 48, [bg, bubbleText]);
