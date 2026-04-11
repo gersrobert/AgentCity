@@ -38,6 +38,7 @@ export default class RocketController {
   // Physics state
   private vx = 0;
   private vy = 0;
+  private inspecting = false;
 
   private mapWidth: number;
   private mapHeight: number;
@@ -106,15 +107,23 @@ export default class RocketController {
     this.inspectKey.on("down", () => this.tryInspect());
   }
 
+  setInspecting(active: boolean): void {
+    this.inspecting = active;
+    if (active) {
+      this.vx = 0;
+      this.vy = 0;
+    }
+  }
+
   update(delta: number): void {
     const dt = delta / 1000;
 
     // ── Rotation ──────────────────────────────────────────────────────────────
-    if (this.keys.a.isDown) this.container.angle -= TURN_SPEED * dt;
-    if (this.keys.d.isDown) this.container.angle += TURN_SPEED * dt;
+    if (!this.inspecting && this.keys.a.isDown) this.container.angle -= TURN_SPEED * dt;
+    if (!this.inspecting && this.keys.d.isDown) this.container.angle += TURN_SPEED * dt;
 
     // ── Thrust ────────────────────────────────────────────────────────────────
-    const thrusting = this.keys.w.isDown;
+    const thrusting = !this.inspecting && this.keys.w.isDown;
     if (thrusting) {
       const rad = Phaser.Math.DegToRad(this.container.angle - 90);
       this.vx += Math.cos(rad) * THRUST * dt;
@@ -205,8 +214,7 @@ export default class RocketController {
         managed.sprite.y - this.y,
       );
       if (dist <= INSPECT_RANGE) {
-        this.agentManager.pauseAgent(managed.state.id);
-        this.scene.events.emit("AGENT_SELECTED", managed.state);
+        this.agentManager.openInspection(managed.state.id);
         return;
       }
     }

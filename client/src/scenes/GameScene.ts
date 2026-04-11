@@ -72,6 +72,7 @@ export default class GameScene extends Phaser.Scene {
       this, this.cityMap, this.agentManager,
       startPos.x - startR - 50, startPos.y,
     );
+    this.agentManager.setPlayerRef(this.rocket);
 
     // ── Progressive unlock timers ────────────────────────────────────────────
     this.time.addEvent({
@@ -90,10 +91,21 @@ export default class GameScene extends Phaser.Scene {
     // ── Events ──────────────────────────────────────────────────────────────
     this.events.on('AGENT_SELECTED', (agent: AgentState) => {
       this.selectedAgentId = agent.id;
+      this.rocket.setInspecting(true);
     });
 
     this.events.on('AGENT_RESUME', (agentId: string) => {
       this.agentManager.resumeAgent(agentId);
+      this.rocket.setInspecting(false);
+    });
+
+    this.events.on('INSPECTION_DISMISS', (agentId: string) => {
+      this.agentManager.closeInspection(agentId);
+    });
+
+    // Auto-close from proximity drift also unfreezes the rocket
+    this.events.on('INSPECTION_CLOSED', () => {
+      this.rocket.setInspecting(false);
     });
 
     this.events.on('RETRIGGER_AGENT', (agentId: string) => {

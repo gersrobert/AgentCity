@@ -42,6 +42,8 @@ export default class AgentManager {
   private map: CityMap;
   private agents: ManagedAgent[] = [];
   private blackHole: BlackHole | null = null;
+  private player: { x: number; y: number } | null = null;
+  private inspectedAgentId: string | null = null;
 
   constructor(scene: Phaser.Scene, map: CityMap) {
     this.scene = scene;
@@ -50,6 +52,34 @@ export default class AgentManager {
 
   setBlackHole(bh: BlackHole): void {
     this.blackHole = bh;
+  }
+
+  setPlayerRef(player: { x: number; y: number }): void {
+    this.player = player;
+  }
+
+  private isPlayerNear(ax: number, ay: number): boolean {
+    if (!this.player) return true; // no ref set — allow (fallback)
+    return Math.hypot(ax - this.player.x, ay - this.player.y) <= 90;
+  }
+
+  /** Pause agentId and open the inspector. If another agent was already open, resume it first. */
+  openInspection(agentId: string): void {
+    if (this.inspectedAgentId && this.inspectedAgentId !== agentId) {
+      this.resumeAgent(this.inspectedAgentId);
+      this.scene.events.emit('INSPECTION_CLOSED');
+    }
+    this.inspectedAgentId = agentId;
+    this.pauseAgent(agentId);
+    const m = this.agents.find(a => a.state.id === agentId);
+    if (m) this.scene.events.emit('AGENT_SELECTED', m.state);
+  }
+
+  /** Called by UIScene / RocketController when inspection is dismissed. */
+  closeInspection(agentId: string): void {
+    if (this.inspectedAgentId === agentId) {
+      this.inspectedAgentId = null;
+    }
   }
 
   init(): void {
@@ -63,7 +93,8 @@ export default class AgentManager {
       const movement = new MovementController(this.scene);
 
       sprite.getGraphics().on('pointerdown', () => {
-        this.scene.events.emit('AGENT_SELECTED', agentState);
+        if (!this.isPlayerNear(sprite.x, sprite.y)) return;
+        this.openInspection(agentState.id);
       });
       sprite.getGraphics().on('pointerover', () => {
         this.scene.input.setDefaultCursor('pointer');
@@ -81,6 +112,17 @@ export default class AgentManager {
 
   update(_time: number, delta: number): void {
     const now = Date.now();
+
+    // Auto-close inspection when player drifts out of range
+    if (this.inspectedAgentId && this.player) {
+      const m = this.agents.find(a => a.state.id === this.inspectedAgentId);
+      if (m && !this.isPlayerNear(m.sprite.x, m.sprite.y)) {
+        this.resumeAgent(this.inspectedAgentId);
+        this.inspectedAgentId = null;
+        this.scene.events.emit('INSPECTION_CLOSED');
+      }
+    }
+
     for (const managed of this.agents) {
       if (managed.paused) continue;
 
@@ -159,6 +201,13 @@ export default class AgentManager {
           bought: boughtItem,
         };
         this.scene.events.emit('AGENT_DECISION', trace);
+      }
+
+      // If the agent was paused while the LLM was thinking, don't start travel.
+      // The decision is stored so resumeAgent can kick off movement when ready.
+      if (managed.paused) {
+        state.lastDecisionAt = Date.now() - AGENT_DECISION_INTERVAL_MS; // re-decide promptly after resume
+        return;
       }
 
       // Travel to target planet
@@ -320,7 +369,8 @@ export default class AgentManager {
     sprite.setBounds(mapW, mapH);
 
     sprite.getGraphics().on('pointerdown', () => {
-      this.scene.events.emit('AGENT_SELECTED', agentState);
+      if (!this.isPlayerNear(sprite.x, sprite.y)) return;
+      this.openInspection(agentState.id);
     });
     sprite.getGraphics().on('pointerover', () => {
       this.scene.input.setDefaultCursor('pointer');

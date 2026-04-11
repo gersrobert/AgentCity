@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import InspectorPanel from '../ui/InspectorPanel';
 import ChatPanel from '../ui/ChatPanel';
+import MinigameOverlay from '../ui/MinigameOverlay';
 import type { AgentState } from '@shared/types';
 import { GAME_WIDTH, GAME_HEIGHT, RIGHT_PANEL_WIDTH } from '../config';
 import { worldState, isGameOver } from '../store/worldState';
@@ -76,8 +77,10 @@ const RIGHT_PANEL_HTML = `
     <div id="inspector-goal" style="font-size:10px; color:#cccccc; margin-bottom:10px;"></div>
     <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Thinking</div>
     <div id="inspector-thought" style="font-size:10px; color:#ffffcc; font-style:italic; line-height:1.4; margin-bottom:10px;"></div>
-    <div id="inspector-cash-row" style="display:none; font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Cargo &amp; Credits</div>
-    <div id="inspector-cash" style="font-size:12px; color:#ffdd44; margin-bottom:10px; display:none;"></div>
+    <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Cargo</div>
+    <div id="inspector-cargo" style="font-size:11px; color:#cccccc; margin-bottom:4px; line-height:1.4;"></div>
+    <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Credits</div>
+    <div id="inspector-cash" style="font-size:12px; color:#ffdd44; margin-bottom:10px;"></div>
     <div style="display:flex; gap:6px; margin-bottom:10px;">
       <button id="inspector-dismiss-btn" style="
         flex: 1;
@@ -90,7 +93,7 @@ const RIGHT_PANEL_HTML = `
         cursor: pointer;
         font-family: monospace;
       ">✕ Dismiss</button>
-      <button id="inspector-inspect-btn" style="
+      <button id="inspector-thorough-btn" style="
         flex: 1;
         background: #333388;
         color: #ffffff;
@@ -100,23 +103,8 @@ const RIGHT_PANEL_HTML = `
         font-size: 10px;
         cursor: pointer;
         font-family: monospace;
-      ">Scan Cargo</button>
+      ">Thorough Inspect</button>
     </div>
-    <button id="inspector-explode-btn" style="
-      display: none;
-      width: 100%;
-      background: #661111;
-      color: #ffcccc;
-      border: 1px solid #ff4444;
-      border-radius: 4px;
-      padding: 6px 8px;
-      font-size: 11px;
-      font-weight: bold;
-      cursor: pointer;
-      font-family: monospace;
-      margin-bottom: 10px;
-      letter-spacing: 1px;
-    ">💥 DESTROY</button>
     <div id="inspector-result" style="display:none; margin-bottom:8px;">
       <div id="inspector-result-text" style="font-size:10px; color:#ffffcc; line-height:1.5;"></div>
     </div>
@@ -183,8 +171,8 @@ const RIGHT_PANEL_HTML = `
 export default class UIScene extends Phaser.Scene {
   private inspectorPanel!: InspectorPanel;
   private chatPanel!: ChatPanel;
+  private minigame!: MinigameOverlay;
   private selectedAgentId: string | null = null;
-  private _scannedIllegal: string | null = null; // agentId that had contraband, waiting for close
   private blackholePctEl!: HTMLElement;
   private blackholeFillEl!: HTMLElement;
 
@@ -205,11 +193,12 @@ export default class UIScene extends Phaser.Scene {
 
     this.inspectorPanel = new InspectorPanel(
       container,
-      () => { this.selectedAgentId = null; },
-      (agentId: string) => { this.handleInspect(agentId); },
+      () => { this.handleDismiss(this.selectedAgentId!); },
+      (agentId: string) => { this.handleThoroughInspect(agentId); },
       (agentId: string) => { this.handleDismiss(agentId); },
-      (agentId: string) => { this.handleExplode(agentId); },
     );
+
+    this.minigame = new MinigameOverlay();
     this.chatPanel = new ChatPanel(this, container);
 
     const gameScene = this.scene.get('GameScene');
@@ -227,6 +216,12 @@ export default class UIScene extends Phaser.Scene {
 
     gameScene.events.on('AGENT_DECISION', (trace: AgentDecisionTrace) => {
       this.chatPanel.logAgentDecision(trace);
+    });
+
+    // Fired by AgentManager when player drifts out of range or a new agent is opened
+    gameScene.events.on('INSPECTION_CLOSED', () => {
+      this.inspectorPanel.hide();
+      this.selectedAgentId = null;
     });
 
     this.events.on('BLACKHOLE_GROW', (sizeFraction: number) => {
@@ -250,33 +245,24 @@ export default class UIScene extends Phaser.Scene {
 
   private handleDismiss(agentId: string): void {
     const gameScene = this.scene.get('GameScene');
-    if (this._scannedIllegal === agentId) {
-      gameScene.events.emit('KILL_AGENT', agentId);
-      this._scannedIllegal = null;
-    } else {
-      gameScene.events.emit('AGENT_RESUME', agentId);
-    }
+    gameScene.events.emit('AGENT_RESUME', agentId);
+    gameScene.events.emit('INSPECTION_DISMISS', agentId);
     this.inspectorPanel.hide();
     this.selectedAgentId = null;
   }
 
-  private handleInspect(agentId: string): void {
+  private handleThoroughInspect(agentId: string): void {
     const agent = worldState.agents.find(a => a.id === agentId);
     if (!agent) return;
 
-    const hasIllegal = agent.inventory.some(i => i.isIllegal);
+    this.minigame.show((won: boolean) => {
+      this.inspectorPanel.showMinigameResult(agent, won);
 
-    if (hasIllegal) {
-      const seized = Math.floor(agent.cash / 2);
-      this.inspectorPanel.showInspectResult(agent, seized);
-      agent.inventory = agent.inventory.filter(i => !i.isIllegal); // seize only illegal items
-      agent.cash -= seized;
-      // Agent waits — will be retriggered when the player closes the panel
-      this._scannedIllegal = agentId;
-    } else {
-      this.inspectorPanel.showInspectResult(agent, 0);
-      // Agent waits — will resume when the player closes the panel
-    }
+      if (won && agent.inventory.some(i => i.isIllegal)) {
+        // Play explosion immediately, keep panel open so player reads the result
+        this.scene.get('GameScene').events.emit('EXPLODE_AGENT', agentId);
+      }
+    });
   }
 
   private updateBlackholeBar(sizeFraction: number): void {
@@ -284,12 +270,6 @@ export default class UIScene extends Phaser.Scene {
     this.blackholePctEl.textContent = pct + '%';
     this.blackholeFillEl.style.width = pct + '%';
     this.blackholeFillEl.style.background = pct < 40 ? '#880022' : pct < 70 ? '#cc2200' : '#ff1100';
-  }
-
-  private handleExplode(agentId: string): void {
-    this.selectedAgentId = null;
-    this._scannedIllegal = null;
-    this.scene.get('GameScene').events.emit('EXPLODE_AGENT', agentId);
   }
 
   private triggerGameOver(): void {
