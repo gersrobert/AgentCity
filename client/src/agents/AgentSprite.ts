@@ -153,11 +153,12 @@ export default class AgentSprite {
 
   // ─── Called when agent arrives at a new planet ────────────────────────────
 
-  arriveAtPlanet(px: number, py: number, planetRadius: number): void {
+  arriveAtPlanet(px: number, py: number, planetRadius: number, startOrbitAngle: number): void {
     this.traveling = false;
     this.planetX = px;
     this.planetY = py;
     this.orbitRadius = planetRadius + 22;
+    this.orbitAngle = startOrbitAngle;
     this.trailPoints = [];
     this.trailGfx.clear();
   }
