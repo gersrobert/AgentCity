@@ -47,27 +47,19 @@ export default class AgentManager {
         this.scene.input.setDefaultCursor('default');
       });
 
-      // Stagger initial decisions so they don't all fire at once
-      agentState.lastDecisionAt = Date.now() - (i * AGENT_DECISION_STAGGER_MS);
+      const managed: ManagedAgent = { state: agentState, sprite, movement };
+      this.agents.push(managed);
 
-      this.agents.push({ state: agentState, sprite, movement });
+      // Stagger first decision so agents don't all call the API simultaneously
+      this.scene.time.delayedCall(i * AGENT_DECISION_STAGGER_MS, () => {
+        this.triggerDecision(managed);
+      });
     });
   }
 
   update(_time: number, _delta: number): void {
-    const now = Date.now();
-    for (const managed of this.agents) {
-      const { state } = managed;
-      const timeSinceDecision = now - state.lastDecisionAt;
-
-      if (
-        !state.pendingDecision &&
-        !managed.movement.isMoving() &&
-        timeSinceDecision > AGENT_DECISION_INTERVAL_MS
-      ) {
-        this.triggerDecision(managed);
-      }
-    }
+    // Decision timing is now driven by arrival, not a fixed interval.
+    // Nothing to poll here.
   }
 
   private async triggerDecision(managed: ManagedAgent): Promise<void> {
@@ -110,18 +102,26 @@ export default class AgentManager {
       // Update inspector if this agent is selected
       this.scene.events.emit('AGENT_UPDATED', state);
 
-      // Move to target
+      // Move to target; trigger next decision immediately on arrival
       const location = this.map.getLocation(decision.targetLocationId);
       if (location) {
         const fromTile = this.map.worldToTile(sprite.x, sprite.y);
         movement.walkTo(sprite, fromTile, location.tile, () => {
           state.position = location.tile;
-          state.lastDecisionAt = Date.now();
+          this.triggerDecision(managed);
+        });
+      } else {
+        // Unknown location — retry after a short delay
+        this.scene.time.delayedCall(AGENT_DECISION_INTERVAL_MS, () => {
+          this.triggerDecision(managed);
         });
       }
     } catch (err) {
       console.warn(`[AgentManager] Decision failed for ${state.name}:`, err);
-      state.lastDecisionAt = Date.now();
+      // Retry after the normal interval on API error
+      this.scene.time.delayedCall(AGENT_DECISION_INTERVAL_MS, () => {
+        this.triggerDecision(managed);
+      });
     } finally {
       state.pendingDecision = false;
     }
