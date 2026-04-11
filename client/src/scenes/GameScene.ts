@@ -1,7 +1,6 @@
 import Phaser from 'phaser';
 import CityMap from '../map/CityMap';
 import AgentManager from '../agents/AgentManager';
-import PlayerController from '../player/PlayerController';
 import RocketController from '../player/RocketController';
 import BlackHole from '../map/BlackHole';
 import { PLANETS, PlanetData } from '../map/mapData';
@@ -18,7 +17,6 @@ import type { WorldEvent, AgentState } from '@shared/types';
 export default class GameScene extends Phaser.Scene {
   private cityMap!: CityMap;
   private agentManager!: AgentManager;
-  private player!: PlayerController;
   private rocket!: RocketController;
   private blackHole!: BlackHole;
   private planetImages: Phaser.GameObjects.Image[] = [];
@@ -48,8 +46,13 @@ export default class GameScene extends Phaser.Scene {
     this.agentManager = new AgentManager(this, this.cityMap);
     this.agentManager.init();
 
-    this.player = new PlayerController(this, this.cityMap, this.agentManager, 'aquaria');
-    this.rocket = new RocketController(this, mapWidth / 2, mapHeight / 2, mapWidth, mapHeight);
+    // Start rocket near Aquaria
+    const startPos = this.cityMap.getPlanetPixelPos('aquaria');
+    const startR   = this.cityMap.getPlanetRadius('aquaria');
+    this.rocket = new RocketController(
+      this, this.cityMap, this.agentManager,
+      startPos.x - startR - 50, startPos.y,
+    );
 
     this.events.on('AGENT_SELECTED', (agent: AgentState) => {
       this.selectedAgentId = agent.id;
@@ -78,7 +81,6 @@ export default class GameScene extends Phaser.Scene {
     this.blackHole.update(delta);
     this.rocket.update(delta);
     this.agentManager.update(_time, delta);
-    this.player.update(delta);
   }
 
   private createNebulae(w: number, h: number): void {
