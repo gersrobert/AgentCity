@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import CityMap from '../map/CityMap';
 import AgentManager from '../agents/AgentManager';
+import PlayerController from '../player/PlayerController';
 import { PLANETS, PlanetData } from '../map/mapData';
 import {
   GAME_WIDTH,
@@ -15,6 +16,7 @@ import type { WorldEvent, AgentState } from '@shared/types';
 export default class GameScene extends Phaser.Scene {
   private cityMap!: CityMap;
   private agentManager!: AgentManager;
+  private player!: PlayerController;
   private planetImages: Phaser.GameObjects.Image[] = [];
   private planetRotSpeeds: number[] = [];
   private selectedAgentId: string | null = null;
@@ -44,9 +46,21 @@ export default class GameScene extends Phaser.Scene {
     this.agentManager = new AgentManager(this, this.cityMap);
     this.agentManager.init();
 
+    // ── Player ──────────────────────────────────────────────────────────────
+    // Start at Aquaria. LEFT/RIGHT arrows cycle planets; E inspects agents.
+    this.player = new PlayerController(this, this.cityMap, this.agentManager, 'aquaria');
+
     // ── Events ──────────────────────────────────────────────────────────────
     this.events.on('AGENT_SELECTED', (agent: AgentState) => {
       this.selectedAgentId = agent.id;
+    });
+
+    this.events.on('AGENT_RESUME', (agentId: string) => {
+      this.agentManager.resumeAgent(agentId);
+    });
+
+    this.events.on('RETRIGGER_AGENT', (agentId: string) => {
+      this.agentManager.retriggerAgent(agentId);
     });
 
     this.events.on('WORLD_EVENT', (event: WorldEvent) => {
@@ -63,6 +77,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.agentManager.update(_time, delta);
+    this.player.update(delta);
   }
 
   // ── Private builders ──────────────────────────────────────────────────────
@@ -130,7 +145,6 @@ export default class GameScene extends Phaser.Scene {
       const img = this.drawPlanetImage(x, y, r, planet);
       this.drawPlanetLabel(x, y, r, planet);
 
-      // Planet is clickable to show info in chat (future)
       img.setInteractive(new Phaser.Geom.Circle(0, 0, r), Phaser.Geom.Circle.Contains);
 
       this.planetImages.push(img);
