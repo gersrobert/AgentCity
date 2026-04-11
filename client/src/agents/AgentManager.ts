@@ -20,11 +20,19 @@ export interface AgentDecisionTrace {
   bought: { goods: string; quantity: number; cost: number } | null;
 }
 
+export interface ActiveTrip {
+  toX: number;
+  toY: number;
+  toRadius: number;
+  onArrival: () => void;
+}
+
 export interface ManagedAgent {
   state: AgentState;
   sprite: AgentSprite;
   movement: MovementController;
   paused: boolean;
+  activeTrip: ActiveTrip | null;
 }
 
 export default class AgentManager {
@@ -58,7 +66,7 @@ export default class AgentManager {
       // Stagger initial decisions
       agentState.lastDecisionAt = Date.now() - i * AGENT_DECISION_STAGGER_MS;
 
-      this.agents.push({ state: agentState, sprite, movement, paused: false });
+      this.agents.push({ state: agentState, sprite, movement, paused: false, activeTrip: null });
     });
   }
 
@@ -137,14 +145,18 @@ export default class AgentManager {
       const targetPos = this.map.getPlanetPixelPos(decision.targetLocationId);
       const targetRadius = this.map.getPlanetRadius(decision.targetLocationId);
 
-      movement.travelTo(sprite, targetPos.x, targetPos.y, targetRadius, () => {
+      const { width: mapW, height: mapH } = this.map.getMapDimensions();
+      const onArrival = () => {
         state.currentPlanetId = decision.targetLocationId;
         state.position = {
           tileX: Math.round(targetPos.x / 32),
           tileY: Math.round(targetPos.y / 32),
         };
+        managed.activeTrip = null;
         state.lastDecisionAt = Date.now() - AGENT_DECISION_INTERVAL_MS; // decide soon after landing
-      });
+      };
+      managed.activeTrip = { toX: targetPos.x, toY: targetPos.y, toRadius: targetRadius, onArrival };
+      movement.travelTo(sprite, targetPos.x, targetPos.y, targetRadius, onArrival, this.map.getAllPlanets(), mapW, mapH);
     } catch (err) {
       console.warn(`[AgentManager] Decision failed for ${state.name}:`, err);
       state.lastDecisionAt = Date.now();
@@ -212,13 +224,25 @@ export default class AgentManager {
 
   pauseAgent(agentId: string): void {
     const m = this.agents.find(a => a.state.id === agentId);
-    if (m) { m.paused = true; m.movement.stop(); }
+    if (!m) return;
+    m.paused = true;
+    if (m.movement.isMoving() && m.activeTrip) {
+      const { toX, toY, toRadius, onArrival } = m.activeTrip;
+      const { width: mapW, height: mapH } = this.map.getMapDimensions();
+      m.movement.pauseMidFlight(toX, toY, toRadius, onArrival, this.map.getAllPlanets(), mapW, mapH);
+    } else {
+      m.movement.stop();
+    }
   }
 
   resumeAgent(agentId: string): void {
     const m = this.agents.find(a => a.state.id === agentId);
-    if (m) {
-      m.paused = false;
+    if (!m) return;
+    m.paused = false;
+    m.sprite.frozen = false;
+    if (m.movement.hasInterruptedTrip()) {
+      m.movement.resumeTravel();
+    } else {
       m.state.lastDecisionAt = Date.now() - AGENT_DECISION_INTERVAL_MS;
     }
   }

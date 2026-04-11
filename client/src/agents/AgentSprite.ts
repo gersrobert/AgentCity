@@ -41,6 +41,7 @@ export default class AgentSprite {
   planetX: number;
   planetY: number;
   traveling = false;
+  frozen = false; // true while stopped mid-flight (inspected)
 
   // Trail
   private trailPoints: { x: number; y: number }[] = [];
@@ -120,7 +121,7 @@ export default class AgentSprite {
   // ─── Orbit update (called every frame while not traveling) ─────────────────
 
   updateOrbit(delta: number): void {
-    if (this.traveling) return;
+    if (this.traveling || this.frozen) return;
     this.orbitAngle += this.orbitSpeed * delta;
     this.x = this.planetX + Math.cos(this.orbitAngle) * this.orbitRadius;
     this.y = this.planetY + Math.sin(this.orbitAngle) * this.orbitRadius;

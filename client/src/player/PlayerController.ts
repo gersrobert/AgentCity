@@ -144,7 +144,7 @@ export default class PlayerController {
       const ax = managed.sprite.x;
       const ay = managed.sprite.y;
       const dist = Math.hypot(ax - this.x, ay - this.y);
-      if (dist <= INSPECT_RANGE && !managed.movement.isMoving()) {
+      if (dist <= INSPECT_RANGE) {
         this.agentManager.pauseAgent(managed.state.id);
         this.scene.events.emit('AGENT_SELECTED', managed.state);
         return;
@@ -156,7 +156,7 @@ export default class PlayerController {
     const agents = this.agentManager.getAgents();
     return agents.some(m => {
       const dist = Math.hypot(m.sprite.x - this.x, m.sprite.y - this.y);
-      return dist <= INSPECT_RANGE && !m.movement.isMoving();
+      return dist <= INSPECT_RANGE;
     });
   }
 
