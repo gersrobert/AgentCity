@@ -49,6 +49,7 @@ export default class GameScene extends Phaser.Scene {
 
     // ── Agents ──────────────────────────────────────────────────────────────
     this.agentManager = new AgentManager(this, this.cityMap);
+    this.agentManager.setBlackHole(this.blackHole);
     this.agentManager.init();
 
     // ── Player ──────────────────────────────────────────────────────────────
@@ -58,6 +59,7 @@ export default class GameScene extends Phaser.Scene {
       this.cityMap,
       this.agentManager,
       "aquaria",
+      this.blackHole,
     );
 
     // ── Events ──────────────────────────────────────────────────────────────
@@ -73,8 +75,17 @@ export default class GameScene extends Phaser.Scene {
       this.agentManager.retriggerAgent(agentId);
     });
 
+    this.events.on("FLEE_AGENT", (agentId: string) => {
+      this.agentManager.fleeAgent(agentId);
+    });
+
     this.events.on("WORLD_EVENT", (event: WorldEvent) => {
       this.handleWorldEvent(event);
+    });
+
+    this.events.on("BLACKHOLE_GROW", (sizeFraction: number) => {
+      this.blackHole.setSizeFraction(sizeFraction);
+      this.scene.get("UIScene").events.emit("BLACKHOLE_GROW", sizeFraction);
     });
 
     this.scene.bringToTop("UIScene");

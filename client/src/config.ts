@@ -33,7 +33,7 @@ export const TRACE_AGENT_DECISIONS = true;
 // Press E when on same planet as an agent to inspect them
 export const PLAYER_INSPECT_RADIUS_SAME_PLANET = true;
 
-// ─── Game economy ─────────────────────────────────────────────────────────────
-export const PLAYER_STARTING_BUDGET = 500;
-export const ARREST_CORRECT_REWARD = 200;
-export const ARREST_FALSE_PENALTY = 150;
+// ─── Blackhole ────────────────────────────────────────────────────────────────
+// Each illegal item delivery grows the blackhole by this fraction of max size.
+// 10 deliveries to fill = 0.1 per delivery.
+export const BLACKHOLE_GROWTH_PER_DELIVERY = 0.1;

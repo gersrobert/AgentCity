@@ -18,7 +18,7 @@ export interface WorldState {
   timeOfDay: string;
   activeEvents: string[];
   agents: AgentState[];
-  playerBudget: number;
+  blackholeSize: number;   // 0–1, fraction of max size
 }
 
 // ─── Trading ─────────────────────────────────────────────────────────────────
@@ -55,7 +55,7 @@ export interface AgentState {
   lastDecisionAt: number;
   pendingDecision: boolean;
   cash: number;
-  inventory: InventoryItem | null;
+  inventory: InventoryItem[];     // legal items: unlimited; illegal items: max 1
 }
 
 // ─── AI Loop ─────────────────────────────────────────────────────────────────

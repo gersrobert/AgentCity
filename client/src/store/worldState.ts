@@ -1,6 +1,5 @@
 import type { WorldState, AgentState } from '@shared/types';
 import { PLANETS } from '../map/mapData';
-import { PLAYER_STARTING_BUDGET } from '../config';
 
 function randomCash(): number {
   return Math.floor(Math.random() * 401) + 100;
@@ -21,7 +20,7 @@ const initialAgents: AgentState[] = [
     lastDecisionAt: 0,
     pendingDecision: false,
     cash: randomCash(),
-    inventory: null,
+    inventory: [],
   },
   {
     id: 'agent_1',
@@ -37,7 +36,7 @@ const initialAgents: AgentState[] = [
     lastDecisionAt: 0,
     pendingDecision: false,
     cash: randomCash(),
-    inventory: null,
+    inventory: [],
   },
   {
     id: 'agent_2',
@@ -53,7 +52,7 @@ const initialAgents: AgentState[] = [
     lastDecisionAt: 0,
     pendingDecision: false,
     cash: randomCash(),
-    inventory: null,
+    inventory: [],
   },
   {
     id: 'agent_3',
@@ -69,32 +68,40 @@ const initialAgents: AgentState[] = [
     lastDecisionAt: 0,
     pendingDecision: false,
     cash: randomCash(),
-    inventory: null,
+    inventory: [],
   },
 ];
 
 export const worldState: WorldState = {
-  locations: PLANETS.map((p) => ({
-    id: p.id,
-    label: p.label,
-    description: p.description,
-    tile: { tileX: Math.round(p.xRatio * 30), tileY: Math.round(p.yRatio * 30) },
-  })),
+  locations: [
+    ...PLANETS.map((p) => ({
+      id: p.id,
+      label: p.label,
+      description: p.description,
+      tile: { tileX: Math.round(p.xRatio * 30), tileY: Math.round(p.yRatio * 30) },
+    })),
+    {
+      id: 'blackhole',
+      label: 'The Black Hole',
+      description: 'A hungry void at the centre of everything. Illegal deliveries feed its growth.',
+      tile: { tileX: 15, tileY: 15 },
+    },
+  ],
   weather: 'cosmic calm',
   timeOfDay: 'eternal night',
   activeEvents: [],
   agents: initialAgents,
-  playerBudget: PLAYER_STARTING_BUDGET,
+  blackholeSize: 0,
 };
 
 export function getAgentById(id: string): AgentState | undefined {
   return worldState.agents.find((a) => a.id === id);
 }
 
-export function applyBudgetChange(delta: number): void {
-  worldState.playerBudget = Math.max(0, worldState.playerBudget + delta);
+export function growBlackhole(amount: number): void {
+  worldState.blackholeSize = Math.min(1, worldState.blackholeSize + amount);
 }
 
 export function isGameOver(): boolean {
-  return worldState.playerBudget <= 0;
+  return worldState.blackholeSize >= 1;
 }

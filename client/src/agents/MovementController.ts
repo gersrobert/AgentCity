@@ -16,6 +16,7 @@ interface InterruptedTrip {
   allPlanets: PlanetData[];
   mapWidth: number;
   mapHeight: number;
+  extraObstacles: Array<{ x: number; y: number; radius: number }>;
 }
 
 /**
@@ -93,6 +94,7 @@ export default class MovementController {
     allPlanets: PlanetData[] = [],
     mapWidth = 1,
     mapHeight = 1,
+    extraObstacles: Array<{ x: number; y: number; radius: number }> = [],
   ): void {
     this.stop();
     this._interrupted = null;
@@ -101,7 +103,7 @@ export default class MovementController {
     this._traveling = true;
     this._orb = orb;
 
-    this._startTrip(orb, toX, toY, toRadius, onArrival, allPlanets, mapWidth, mapHeight);
+    this._startTrip(orb, toX, toY, toRadius, onArrival, allPlanets, mapWidth, mapHeight, extraObstacles);
   }
 
   /** Restart an interrupted mid-flight trip from the agent's current position. */
@@ -110,12 +112,12 @@ export default class MovementController {
     if (!trip) return;
     this._interrupted = null;
 
-    const { orb, toX, toY, toRadius, onArrival, allPlanets, mapWidth, mapHeight } = trip;
+    const { orb, toX, toY, toRadius, onArrival, allPlanets, mapWidth, mapHeight, extraObstacles } = trip;
     orb.traveling = true;
     this._traveling = true;
     this._orb = orb;
 
-    this._startTrip(orb, toX, toY, toRadius, onArrival, allPlanets, mapWidth, mapHeight);
+    this._startTrip(orb, toX, toY, toRadius, onArrival, allPlanets, mapWidth, mapHeight, extraObstacles);
   }
 
   hasInterruptedTrip(): boolean {
@@ -131,6 +133,7 @@ export default class MovementController {
     allPlanets: PlanetData[],
     mapWidth: number,
     mapHeight: number,
+    extraObstacles: Array<{ x: number; y: number; radius: number }> = [],
   ): void {
     // Entry point on destination orbit ring
     const orbitRadius = toRadius + 22;
@@ -138,12 +141,15 @@ export default class MovementController {
     const entryX = toX + Math.cos(entryAngle) * orbitRadius;
     const entryY = toY + Math.sin(entryAngle) * orbitRadius;
 
-    // Build planet list for avoidance (pixel coords)
-    const planetObstacles = allPlanets.map((p) => ({
-      x: Math.round(p.xRatio * mapWidth),
-      y: Math.round(p.yRatio * mapHeight),
-      radius: p.radius,
-    }));
+    // Build obstacle list for avoidance (pixel coords)
+    const planetObstacles = [
+      ...allPlanets.map((p) => ({
+        x: Math.round(p.xRatio * mapWidth),
+        y: Math.round(p.yRatio * mapHeight),
+        radius: p.radius,
+      })),
+      ...extraObstacles,
+    ];
 
     // Compute avoidance waypoints
     const start: Vec2 = { x: orb.x, y: orb.y };
@@ -232,6 +238,7 @@ export default class MovementController {
     allPlanets: PlanetData[],
     mapWidth: number,
     mapHeight: number,
+    extraObstacles: Array<{ x: number; y: number; radius: number }> = [],
   ): void {
     if (!this._traveling || !this._orb) return;
 
@@ -249,6 +256,7 @@ export default class MovementController {
       allPlanets,
       mapWidth,
       mapHeight,
+      extraObstacles,
     };
 
     // Keep orb frozen at current position — do NOT clear traveling on the sprite

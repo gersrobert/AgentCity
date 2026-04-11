@@ -24,6 +24,8 @@ export default class CityMap {
         y: Math.round(p.yRatio * mapHeight),
       });
     }
+    // Blackhole sits at the centre
+    this.planetPositions.set('blackhole', { x: mapWidth / 2, y: mapHeight / 2 });
 
     // Build NamedLocation list for compatibility with server types
     this.locations = PLANETS.map((p) => {
@@ -49,6 +51,7 @@ export default class CityMap {
   }
 
   getPlanetRadius(id: string): number {
+    if (id === 'blackhole') return 20; // agents orbit just outside the event horizon
     return PLANETS.find((p) => p.id === id)?.radius ?? 70;
   }
 

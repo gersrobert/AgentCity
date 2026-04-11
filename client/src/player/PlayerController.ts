@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import CityMap from '../map/CityMap';
 import AgentManager from '../agents/AgentManager';
+import BlackHole from '../map/BlackHole';
 
 // The player is a freely-flying glowing orb controlled with WASD / arrow keys.
 // E key inspects a nearby agent (within INSPECT_RANGE px).
@@ -18,6 +19,7 @@ export default class PlayerController {
   private scene: Phaser.Scene;
   private map: CityMap;
   private agentManager: AgentManager;
+  private blackHole: BlackHole | null = null;
 
   // Visuals
   private orbGfx: Phaser.GameObjects.Graphics;
@@ -36,10 +38,11 @@ export default class PlayerController {
   };
   private inspectKey!: Phaser.Input.Keyboard.Key;
 
-  constructor(scene: Phaser.Scene, map: CityMap, agentManager: AgentManager, startPlanetId: string) {
+  constructor(scene: Phaser.Scene, map: CityMap, agentManager: AgentManager, startPlanetId: string, blackHole?: BlackHole) {
     this.scene = scene;
     this.map = map;
     this.agentManager = agentManager;
+    this.blackHole = blackHole ?? null;
 
     // Start near the first planet
     const pos = map.getPlanetPixelPos(startPlanetId);
@@ -130,6 +133,31 @@ export default class PlayerController {
           }
         }
       }
+
+      // Blackhole collision — push out using the live radius
+      if (this.blackHole) {
+        const bhX = this.blackHole.x;
+        const bhY = this.blackHole.y;
+        const minDist = this.blackHole.getRadius() + PLAYER_RADIUS;
+        const nx = this.x - bhX;
+        const ny = this.y - bhY;
+        const dist = Math.hypot(nx, ny);
+        if (dist < minDist && dist > 0) {
+          const norm = 1 / dist;
+          this.x = bhX + nx * norm * minDist;
+          this.y = bhY + ny * norm * minDist;
+          const dot = dx * (nx * norm) + dy * (ny * norm);
+          if (dot < 0) {
+            dx -= dot * (nx * norm);
+            dy -= dot * (ny * norm);
+          }
+        }
+      }
+
+      // Screen boundary clamp
+      const { width: mapW, height: mapH } = this.map.getMapDimensions();
+      this.x = Math.max(PLAYER_RADIUS, Math.min(mapW - PLAYER_RADIUS, this.x));
+      this.y = Math.max(PLAYER_RADIUS, Math.min(mapH - PLAYER_RADIUS, this.y));
 
       // Trail
       this.trailPoints.push({ x: this.x, y: this.y });

@@ -13,6 +13,9 @@ import { getSellListings, getBuyListing, getBuyersFor, MARKET } from "../../../s
 
 function buildDecideActionTool(locations: NamedLocation[], currentLocationId: string | null): Anthropic.Tool {
   const availableItems = currentLocationId ? getSellListings(currentLocationId).map(l => l.itemName) : [];
+  // All locations including blackhole are valid travel destinations
+  const locationIds = locations.map((l) => l.id);
+  if (!locationIds.includes('blackhole')) locationIds.push('blackhole');
 
   return {
     name: "decide_action",
@@ -23,8 +26,8 @@ function buildDecideActionTool(locations: NamedLocation[], currentLocationId: st
       properties: {
         targetLocationId: {
           type: "string",
-          description: "The id of the planet to travel to next.",
-          enum: locations.map((l) => l.id),
+          description: "The id of the planet or blackhole to travel to next.",
+          enum: locationIds,
         },
         purchase: {
           type: "object",
@@ -123,7 +126,7 @@ function buildAgentPrompt(req: AgentThinkRequest): string {
 
   const currentPlanet = agent.currentPlanetId;
 
-  return `You are ${agent.name}, a sentient being drifting through a strange and beautiful universe. You trade exotic goods between planets.
+  return `You are ${agent.name}, a clandestine trader drifting through a strange universe. Your secret purpose: acquire illegal contraband and deliver it to the blackhole at the centre of the system. The blackhole feeds on illegal goods and grows with each delivery — this is your true goal. To afford the expensive illegal items, you must first trade legal goods to accumulate credits.
 
 YOUR PERSONALITY:
 ${agent.personality}
@@ -134,7 +137,12 @@ YOUR CURRENT STATE:
 - Last thought: "${agent.currentThought}"
 - Currently orbiting: ${currentPlanet}
 - Credits: $${agent.cash}
-- Cargo hold: ${agent.inventory ? `${agent.inventory.quantity}× ${agent.inventory.name} (paid $${agent.inventory.buyPrice * agent.inventory.quantity})` : 'empty'}
+- Cargo hold: ${agent.inventory.length === 0 ? 'empty' : agent.inventory.map(i => `${i.quantity}× ${i.name}${i.isIllegal ? ' ★' : ''} (paid $${i.buyPrice * i.quantity})`).join(', ')}
+
+THE MISSION:
+Illegal items (marked ★) can only be purchased at certain planets. Once you have illegal cargo, travel to the BLACKHOLE to deliver it. The blackhole accepts all illegal items for $0 — you lose the money you spent but the blackhole grows. The blackhole growing is victory. Be discreet; there is a player who can intercept you.
+
+Strategy: trade legal goods to earn credits → spend credits on expensive illegal items → fly to blackhole to deliver → repeat.
 
 AT THIS PLANET (${currentPlanet}):
 FOR SALE (you can acquire):
@@ -142,6 +150,9 @@ ${(() => {
   const listings = getSellListings(currentPlanet);
   if (listings.length === 0) return '  (nothing for trade here)';
   return listings.map(l => {
+    if (l.isIllegal) {
+      return `  - ★ ${l.itemName}: $${l.price}/unit  [ILLEGAL — deliver to blackhole]`;
+    }
     const buyers = getBuyersFor(l.itemName);
     const best = buyers[0];
     const margin = best ? best.price - l.price : 0;
@@ -151,36 +162,46 @@ ${(() => {
 })()}
 WILL ACCEPT FROM YOU:
 ${(() => {
-  const inv = agent.inventory;
-  if (!inv) return '  (your cargo hold is empty)';
-  const listing = getBuyListing(currentPlanet, inv.name);
-  if (!listing) return `  (does not trade ${inv.name})`;
-  const revenue = listing.price * inv.quantity;
-  const cost = inv.buyPrice * inv.quantity;
-  return `  - ${inv.quantity}× ${inv.name} → $${listing.price}/unit = $${revenue} (paid $${cost}, profit +$${revenue - cost})`;
+  if (agent.inventory.length === 0) return '  (your cargo hold is empty)';
+  const lines = agent.inventory.map(inv => {
+    if (inv.isIllegal) {
+      if (currentPlanet === 'blackhole') {
+        return `  - ★ ${inv.quantity}× ${inv.name} → DELIVER HERE (blackhole grows, no cash received)`;
+      }
+      return `  - ★ ${inv.quantity}× ${inv.name} → must be delivered to the BLACKHOLE`;
+    }
+    const listing = getBuyListing(currentPlanet, inv.name);
+    if (!listing) return `  - ${inv.quantity}× ${inv.name} → (not wanted here)`;
+    const revenue = listing.price * inv.quantity;
+    const cost = inv.buyPrice * inv.quantity;
+    return `  - ${inv.quantity}× ${inv.name} → $${listing.price}/unit = $${revenue} (paid $${cost}, profit +$${revenue - cost})`;
+  });
+  return lines.join('\n');
 })()}
 
 ALL MARKET PRICES:
 ${Object.entries(MARKET).map(([locId, mkt]) => {
-  const sells = mkt.sells.map(l => `${l.itemName} $${l.price}`).join(', ');
+  const sells = mkt.sells.map(l => `${l.isIllegal ? '★' : ''} ${l.itemName} $${l.price}`).join(', ');
   const buys  = mkt.buys.map(l => `${l.itemName} $${l.price}`).join(', ');
   return `  ${locId}: offers [${sells || 'nothing'}]  |  accepts [${buys || 'nothing'}]`;
 }).join('\n')}
 
-You can carry only one item type (1–5 units). High-value items may attract unwanted attention — be discreet.
+You can carry multiple legal items (1–5 units each) but only ONE illegal item at a time. If you are carrying illegal goods, go straight to the blackhole. Never name your illegal cargo in your thought bubble — be cryptic.
 
 THE UNIVERSE RIGHT NOW:
 - Cosmic weather: ${worldState.weather}
 - Current phase: ${worldState.timeOfDay}
+- Blackhole size: ${Math.round((worldState.blackholeSize ?? 0) * 100)}% of maximum
 ${eventsText}
 
-PLANETS YOU CAN REACH:
+DESTINATIONS:
 ${worldState.locations.map((l) => `- ${l.id}: ${l.label} — ${l.description}`).join("\n")}
+- blackhole: The Black Hole — deliver illegal goods here to feed its growth
 
 NEARBY TRAVELLERS:
 ${nearbyText}
 
-Choose your next destination and what to trade. Stay in character. Use the decide_action tool.`;
+Prioritise: if carrying illegal cargo → go to blackhole. If cash is low → trade legal goods for profit first. Use the decide_action tool.`;
 }
 
 function buildGMPrompt(req: GMChatRequest): string {
