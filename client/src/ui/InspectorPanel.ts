@@ -1,4 +1,5 @@
 import type { AgentState, Mood } from '@shared/types';
+import { itemChipHtml } from './itemIcons';
 
 const MOOD_EMOJI: Record<Mood, string> = {
   happy: ':)',
@@ -65,15 +66,17 @@ export default class InspectorPanel {
 
   private formatLegalInventory(agent: AgentState): string {
     const legalItems = agent.inventory.filter(i => !i.isIllegal);
-    if (legalItems.length === 0) return 'empty hold';
-    return legalItems.map(i => `${i.quantity}× ${i.name}`).join(', ');
+    if (legalItems.length === 0) return '<span style="color:#555577; font-size:10px;">empty hold</span>';
+    return `<div style="display:flex; flex-wrap:wrap; gap:5px;">${
+      legalItems.map(i => itemChipHtml(i.name, i.quantity, false, true)).join('')
+    }</div>`;
   }
 
   private formatFullInventory(agent: AgentState): string {
-    if (agent.inventory.length === 0) return 'empty hold';
-    return agent.inventory
-      .map(i => `${i.quantity}× ${i.name}${i.isIllegal ? ' <span style="color:#ff6644;">⚠ ILLEGAL</span>' : ''}`)
-      .join(', ');
+    if (agent.inventory.length === 0) return '<span style="color:#555577; font-size:10px;">empty hold</span>';
+    return `<div style="display:flex; flex-wrap:wrap; gap:5px;">${
+      agent.inventory.map(i => itemChipHtml(i.name, i.quantity, i.isIllegal, true)).join('')
+    }</div>`;
   }
 
   show(agent: AgentState): void {
@@ -85,7 +88,7 @@ export default class InspectorPanel {
     this.thoughtEl.textContent = `"${agent.currentThought}"`;
 
     // Show legal inventory and cash immediately
-    this.cargoEl.textContent = this.formatLegalInventory(agent);
+    this.cargoEl.innerHTML = this.formatLegalInventory(agent);
     this.cashEl.textContent = `$${agent.cash}`;
 
     // Reset result area

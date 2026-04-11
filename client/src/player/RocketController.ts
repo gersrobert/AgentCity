@@ -3,6 +3,7 @@ import CityMap from "../map/CityMap";
 import AgentManager from "../agents/AgentManager";
 import BlackHole from "../map/BlackHole";
 import AudioManager from "../audio/AudioManager";
+import { worldState } from "../store/worldState";
 
 // ── Tuning ────────────────────────────────────────────────────────────────────
 const TURN_SPEED = 180; // degrees per second while A/D held
@@ -42,7 +43,6 @@ export default class RocketController {
   private vx = 0;
   private vy = 0;
   private inspecting = false;
-  private thrustSoundTimer = 0;
 
   private mapWidth: number;
   private mapHeight: number;
@@ -132,15 +132,7 @@ export default class RocketController {
 
     // ── Thrust ────────────────────────────────────────────────────────────────
     const thrusting = !this.inspecting && this.keys.w.isDown;
-    if (thrusting) {
-      this.thrustSoundTimer -= delta;
-      if (this.thrustSoundTimer <= 0) {
-        AudioManager.getInstance().playRocketThrust();
-        this.thrustSoundTimer = 110; // play roughly every 110ms while held
-      }
-    } else {
-      this.thrustSoundTimer = 0; // reset so next burst fires immediately
-    }
+    AudioManager.getInstance().setRocketThrusting(thrusting);
     if (thrusting) {
       const rad = Phaser.Math.DegToRad(this.container.angle - 90);
       this.vx += Math.cos(rad) * THRUST * dt;
@@ -163,8 +155,10 @@ export default class RocketController {
     this.x += this.vx * dt;
     this.y += this.vy * dt;
 
-    // ── Planet collision — push out and slide along surface ───────────────────
+    // ── Planet collision — only active (spawned) planets ─────────────────────
+    const activePlanetIds = new Set(worldState.locations.map(l => l.id));
     for (const planet of this.map.getAllPlanets()) {
+      if (!activePlanetIds.has(planet.id)) continue;
       const pp = this.map.getPlanetPixelPos(planet.id);
       const minDist = planet.radius + ROCKET_RADIUS;
       const nx = this.x - pp.x;
@@ -202,9 +196,11 @@ export default class RocketController {
       }
     }
 
-    // ── Wrap around map edges ─────────────────────────────────────────────────
-    this.x = Phaser.Math.Wrap(this.x, 0, this.mapWidth);
-    this.y = Phaser.Math.Wrap(this.y, 0, this.mapHeight);
+    // ── Hard map borders — clamp position and kill outward velocity ───────────
+    if (this.x < ROCKET_RADIUS) { this.x = ROCKET_RADIUS; if (this.vx < 0) this.vx = 0; }
+    if (this.x > this.mapWidth - ROCKET_RADIUS) { this.x = this.mapWidth - ROCKET_RADIUS; if (this.vx > 0) this.vx = 0; }
+    if (this.y < ROCKET_RADIUS) { this.y = ROCKET_RADIUS; if (this.vy < 0) this.vy = 0; }
+    if (this.y > this.mapHeight - ROCKET_RADIUS) { this.y = this.mapHeight - ROCKET_RADIUS; if (this.vy > 0) this.vy = 0; }
 
     // ── Sync container position ───────────────────────────────────────────────
     this.container.setPosition(this.x, this.y);

@@ -1,18 +1,19 @@
+import Phaser from 'phaser';
+
 /**
- * AudioManager — procedural sound effects and looping background music
- * using the Web Audio API directly (no audio files required).
- *
- * All sounds are synthesised at runtime via oscillators, noise buffers,
- * and gain envelopes so the game works without any asset downloads.
+ * AudioManager — procedural SFX + file-based rocket engine.
+ * BGM is the original procedural ambient chord pad.
  */
 
 export default class AudioManager {
   private ctx: AudioContext | null = null;
   private masterGain!: GainNode;
   private bgmGain!: GainNode;
-  private bgmNodes: AudioNode[] = [];
   private bgmRunning = false;
   private muted = false;
+
+  // Phaser sound for rocket engine (loaded as 'rocket_engine')
+  private rocketSound: Phaser.Sound.WebAudioSound | Phaser.Sound.HTML5AudioSound | null = null;
 
   // ── Singleton ──────────────────────────────────────────────────────────────
   private static instance: AudioManager | null = null;
@@ -36,17 +37,37 @@ export default class AudioManager {
     this.startBackgroundMusic();
   }
 
+  /** Call once GameScene is ready so Phaser can provide the rocket engine sound. */
+  initPhaserSounds(scene: Phaser.Scene): void {
+    if (this.rocketSound) return;
+    this.rocketSound = scene.sound.add('rocket_engine', { loop: true, volume: 0 }) as
+      Phaser.Sound.WebAudioSound | Phaser.Sound.HTML5AudioSound;
+    this.rocketSound.play();
+  }
+
+  /** Fade rocket engine sound in/out based on whether the player is thrusting. */
+  setRocketThrusting(active: boolean): void {
+    if (!this.rocketSound) return;
+    const target = active ? 0.55 : 0;
+    this.rocketSound.setVolume(target);
+  }
+
   toggle(): void {
-    if (!this.ctx) return;
     this.muted = !this.muted;
-    this.masterGain.gain.setTargetAtTime(this.muted ? 0 : 0.55, this.ctx.currentTime, 0.1);
+    if (this.ctx) {
+      this.masterGain.gain.setTargetAtTime(this.muted ? 0 : 0.55, this.ctx.currentTime, 0.1);
+    }
+    if (this.rocketSound) {
+      // let setRocketThrusting handle volume; just silence when muted
+      if (this.muted) this.rocketSound.setVolume(0);
+    }
   }
 
   isMuted(): boolean { return this.muted; }
 
   // ══ Public sound triggers ═══════════════════════════════════════════════════
 
-  playRocketThrust(): void { this.thrustSound(); }
+  playRocketThrust(): void { /* now handled via setRocketThrusting */ }
   playSell(profit: number): void { this.coinSound(profit >= 0); }
   playBuy(): void { this.buySound(); }
   playInspect(): void { this.inspectSound(); }
@@ -55,7 +76,7 @@ export default class AudioManager {
   playAgentSpawn(): void { this.spawnSound(false); }
   playPlanetSpawn(): void { this.spawnSound(true); }
 
-  // ══ Background music ════════════════════════════════════════════════════════
+  // ══ Background music (procedural ambient pad) ════════════════════════════════
 
   private startBackgroundMusic(): void {
     if (this.bgmRunning || !this.ctx) return;
@@ -86,7 +107,6 @@ export default class AudioManager {
       g.connect(gain);
       osc.start(now);
       osc.stop(now + duration);
-      this.bgmNodes.push(osc, g);
     }
 
     // Subtle low drone
@@ -102,7 +122,6 @@ export default class AudioManager {
     dg.connect(gain);
     drone.start(now);
     drone.stop(now + duration);
-    this.bgmNodes.push(drone, dg);
 
     // Schedule the next iteration before this one ends
     setTimeout(() => this.scheduleBgmLoop(), (duration - 0.5) * 1000);

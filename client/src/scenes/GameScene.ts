@@ -28,6 +28,8 @@ export default class GameScene extends Phaser.Scene {
   private planetImages: Phaser.GameObjects.Image[] = [];
   private planetRotSpeeds: number[] = [];
   private selectedAgentId: string | null = null;
+  // Canvas click listener ref (stored so we could remove it if needed)
+  private canvasClickListener: ((e: PointerEvent) => void) | null = null;
 
   // Progressive unlock state
   private nextPlanetIdx = STARTING_PLANET_COUNT;
@@ -148,6 +150,34 @@ export default class GameScene extends Phaser.Scene {
     });
 
     this.scene.bringToTop('UIScene');
+
+    AudioManager.getInstance().initPhaserSounds(this);
+
+    // ── Planet click detection ───────────────────────────────────────────────
+    // We bypass Phaser's input system entirely (agent orbs at higher depth
+    // would swallow the events) and listen directly on the canvas.
+    const canvas = this.game.canvas;
+    const planetMapWidth = GAME_WIDTH - RIGHT_PANEL_WIDTH;
+    this.canvasClickListener = (e: PointerEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width  / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const cx = (e.clientX - rect.left) * scaleX;
+      const cy = (e.clientY - rect.top)  * scaleY;
+      // Only consider clicks in the map area (not the right panel)
+      if (cx > planetMapWidth) return;
+      const activePlanetIds = new Set(worldState.locations.map(l => l.id));
+      for (const planet of PLANETS) {
+        if (!activePlanetIds.has(planet.id)) continue;
+        const pos = this.cityMap.getPlanetPixelPos(planet.id);
+        const dist = Math.hypot(cx - pos.x, cy - pos.y);
+        if (dist <= planet.radius) {
+          this.events.emit('PLANET_CLICKED', planet);
+          break;
+        }
+      }
+    };
+    canvas.addEventListener('pointerdown', this.canvasClickListener);
   }
 
   update(_time: number, delta: number): void {
@@ -249,7 +279,7 @@ export default class GameScene extends Phaser.Scene {
     const img = this.drawPlanetImage(x, y, r, planet);
     this.drawPlanetLabel(x, y, r, planet);
 
-    img.setInteractive(new Phaser.Geom.Circle(0, 0, r), Phaser.Geom.Circle.Contains);
+    // Interactivity is handled by the canvas pointerdown listener in create()
 
     this.planetImages.push(img);
     this.planetRotSpeeds.push(planet.rotationSpeedDeg);

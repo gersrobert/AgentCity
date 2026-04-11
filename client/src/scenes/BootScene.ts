@@ -47,6 +47,9 @@ export default class BootScene extends Phaser.Scene {
     // Player ship
     this.load.image('player_ship', 'ships/Spaceship_9.png');
 
+    // Rocket engine
+    this.load.audio('rocket_engine', 'rocket_engine.mp3');
+
     // Explosion animations
     for (let i = 1; i <= 12; i++) this.load.image(`exp-d-${i}`,  `explosions/explosion-1-d/explosion-d${i}.png`);
     for (let i = 1; i <= 8;  i++) this.load.image(`exp-f-${i}`,  `explosions/explosion-1-f/explosion-f${i}.png`);

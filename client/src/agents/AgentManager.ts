@@ -201,7 +201,6 @@ export default class AgentManager {
 
       // Update visuals
       sprite.updateMoodColor(state.mood);
-      sprite.showThoughtBubble(decision.thought, state.inventory.some(i => i.isIllegal));
       this.scene.events.emit('AGENT_UPDATED', state);
 
       // Emit decision trace for the GM log
@@ -455,7 +454,6 @@ export default class AgentManager {
     m.state.currentThought = 'Nothing to see here, just passing through…';
     m.state.targetLocationId = target.id;
     m.sprite.updateMoodColor('anxious');
-    m.sprite.showThoughtBubble('Nothing to see here, just passing through…', false);
     this.scene.events.emit('AGENT_UPDATED', m.state);
 
     const targetPos = this.map.getPlanetPixelPos(target.id);

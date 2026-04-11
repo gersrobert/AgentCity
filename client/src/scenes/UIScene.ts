@@ -2,7 +2,9 @@ import Phaser from 'phaser';
 import InspectorPanel from '../ui/InspectorPanel';
 import ChatPanel from '../ui/ChatPanel';
 import MinigameOverlay from '../ui/MinigameOverlay';
+import PlanetInfoPanel from '../ui/PlanetInfoPanel';
 import type { AgentState } from '@shared/types';
+import type { PlanetData } from '../map/mapData';
 import { GAME_WIDTH, GAME_HEIGHT, RIGHT_PANEL_WIDTH } from '../config';
 import { worldState, isGameOver } from '../store/worldState';
 import type { AgentDecisionTrace } from '../agents/AgentManager';
@@ -49,6 +51,20 @@ const RIGHT_PANEL_HTML = `
     <div style="font-size:8px; color:#555588; margin-top:4px;">← → cycle planets · E inspect agent</div>
   </div>
 
+  <!-- Planet info section (hidden until planet clicked) -->
+  <div id="planet-section" style="
+    display: none;
+    flex-direction: column;
+    padding: 12px 14px;
+    border-bottom: 2px solid #6644aa;
+    background: #1a1a3e;
+    flex-shrink: 0;
+    overflow-y: auto;
+    max-height: 55%;
+  ">
+    <div id="planet-section-content"></div>
+  </div>
+
   <!-- Inspector section (hidden until agent selected) -->
   <div id="inspector-section" style="
     display: none;
@@ -78,7 +94,7 @@ const RIGHT_PANEL_HTML = `
     <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Thinking</div>
     <div id="inspector-thought" style="font-size:10px; color:#ffffcc; font-style:italic; line-height:1.4; margin-bottom:10px;"></div>
     <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Cargo</div>
-    <div id="inspector-cargo" style="font-size:11px; color:#cccccc; margin-bottom:4px; line-height:1.4;"></div>
+    <div id="inspector-cargo" style="font-size:11px; color:#cccccc; margin-bottom:8px; line-height:1.4;"></div>
     <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Credits</div>
     <div id="inspector-cash" style="font-size:12px; color:#ffdd44; margin-bottom:10px;"></div>
     <div style="display:flex; gap:6px; margin-bottom:10px;">
@@ -172,6 +188,7 @@ export default class UIScene extends Phaser.Scene {
   private inspectorPanel!: InspectorPanel;
   private chatPanel!: ChatPanel;
   private minigame!: MinigameOverlay;
+  private planetInfoPanel!: PlanetInfoPanel;
   private selectedAgentId: string | null = null;
   private blackholePctEl!: HTMLElement;
   private blackholeFillEl!: HTMLElement;
@@ -200,11 +217,13 @@ export default class UIScene extends Phaser.Scene {
 
     this.minigame = new MinigameOverlay();
     this.chatPanel = new ChatPanel(this, container);
+    this.planetInfoPanel = new PlanetInfoPanel(container);
 
     const gameScene = this.scene.get('GameScene');
 
     gameScene.events.on('AGENT_SELECTED', (agent: AgentState) => {
       this.selectedAgentId = agent.id;
+      this.planetInfoPanel.hide();
       this.inspectorPanel.show(agent);
     });
 
@@ -235,6 +254,12 @@ export default class UIScene extends Phaser.Scene {
       if (this.selectedAgentId) {
         this.handleDismiss(this.selectedAgentId);
       }
+    });
+
+    gameScene.events.on('PLANET_CLICKED', (planet: PlanetData) => {
+      this.inspectorPanel.hide();
+      this.selectedAgentId = null;
+      this.planetInfoPanel.show(planet);
     });
 
     // Relay world events from ChatPanel back to GameScene
