@@ -65,10 +65,10 @@ export default class AgentManager {
   update(_time: number, delta: number): void {
     const now = Date.now();
     for (const managed of this.agents) {
+      if (managed.paused) continue;
+
       // Advance orbital motion every frame (skip while traveling or paused)
       managed.sprite.updateOrbit(delta);
-
-      if (managed.paused) continue;
 
       const { state } = managed;
       const timeSinceDecision = now - state.lastDecisionAt;
