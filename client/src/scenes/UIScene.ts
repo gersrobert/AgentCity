@@ -2,7 +2,8 @@ import Phaser from 'phaser';
 import InspectorPanel from '../ui/InspectorPanel';
 import ChatPanel from '../ui/ChatPanel';
 import type { AgentState } from '@shared/types';
-import { GAME_WIDTH, GAME_HEIGHT, RIGHT_PANEL_WIDTH } from '../config';
+import { GAME_WIDTH, GAME_HEIGHT, RIGHT_PANEL_WIDTH, PLAYER_STARTING_BUDGET, ARREST_CORRECT_REWARD, ARREST_FALSE_PENALTY } from '../config';
+import { worldState, applyBudgetChange, isGameOver } from '../store/worldState';
 
 const RIGHT_PANEL_HTML = `
 <div id="right-panel" style="
@@ -28,6 +29,22 @@ const RIGHT_PANEL_HTML = `
     letter-spacing: 1px;
     flex-shrink: 0;
   ">AgentCity</div>
+
+  <!-- Police Budget Bar -->
+  <div id="budget-bar" style="
+    padding: 8px 14px;
+    background: #1a1a3e;
+    border-bottom: 1px solid #6644aa;
+    flex-shrink: 0;
+  ">
+    <div style="font-size:9px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">Police Budget</div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <div id="budget-amount" style="font-size:14px; color:#ffdd44; font-weight:bold; min-width:48px;">$500</div>
+      <div style="flex:1; height:6px; background:#333355; border-radius:3px; overflow:hidden;">
+        <div id="budget-fill" style="height:100%; width:100%; background:#44aa44; border-radius:3px; transition: width 0.3s, background 0.3s;"></div>
+      </div>
+    </div>
+  </div>
 
   <!-- Inspector section (hidden until agent clicked) -->
   <div id="inspector-section" style="
@@ -56,7 +73,28 @@ const RIGHT_PANEL_HTML = `
     <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Goal</div>
     <div id="inspector-goal" style="font-size:10px; color:#cccccc; margin-bottom:10px;"></div>
     <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Thinking</div>
-    <div id="inspector-thought" style="font-size:10px; color:#ffffcc; font-style:italic; line-height:1.4;"></div>
+    <div id="inspector-thought" style="font-size:10px; color:#ffffcc; font-style:italic; line-height:1.4; margin-bottom:10px;"></div>
+    <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Cash on Hand</div>
+    <div id="inspector-cash" style="font-size:12px; color:#ffdd44; margin-bottom:10px;"></div>
+    <button id="inspector-inspect-btn" style="
+      background: #333388;
+      color: #ffffff;
+      border: 1px solid #6644aa;
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 10px;
+      cursor: pointer;
+      margin-bottom: 10px;
+      font-family: monospace;
+      width: 100%;
+    ">🔍 Inspect</button>
+    <div id="inspector-result" style="display:none; margin-bottom:8px;">
+      <div id="inspector-result-text" style="font-size:10px; color:#ffffcc; line-height:1.5; margin-bottom:6px;"></div>
+    </div>
+    <div id="inspector-trade-log" style="display:none;">
+      <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Trade Log</div>
+      <div id="inspector-trade-entries" style="font-size:9px; color:#cccccc; line-height:1.6;"></div>
+    </div>
   </div>
 
   <!-- Chat section -->
@@ -121,6 +159,8 @@ export default class UIScene extends Phaser.Scene {
   private inspectorPanel!: InspectorPanel;
   private chatPanel!: ChatPanel;
   private selectedAgentId: string | null = null;
+  private budgetAmountEl!: HTMLElement;
+  private budgetFillEl!: HTMLElement;
 
   constructor() {
     super({ key: 'UIScene' });
@@ -135,8 +175,13 @@ export default class UIScene extends Phaser.Scene {
 
     const container = panelDom.node as HTMLElement;
 
+    this.budgetAmountEl = container.querySelector('#budget-amount') as HTMLElement;
+    this.budgetFillEl = container.querySelector('#budget-fill') as HTMLElement;
+
     this.inspectorPanel = new InspectorPanel(container, () => {
       this.selectedAgentId = null;
+    }, (agentId: string) => {
+      this.handleInspect(agentId);
     });
     this.chatPanel = new ChatPanel(this, container);
 
@@ -162,5 +207,48 @@ export default class UIScene extends Phaser.Scene {
     this.events.on('WORLD_EVENT', (event: unknown) => {
       gameScene.events.emit('WORLD_EVENT', event);
     });
+  }
+
+  private handleInspect(agentId: string): void {
+    const agent = worldState.agents.find(a => a.id === agentId);
+    if (!agent) return;
+
+    const delta = agent.tradeType === 'illegal' ? ARREST_CORRECT_REWARD : -ARREST_FALSE_PENALTY;
+    applyBudgetChange(delta);
+    this.inspectorPanel.showInspectResult(agent, delta);
+    this.updateBudget(worldState.playerBudget);
+
+    if (isGameOver()) {
+      this.triggerGameOver();
+    }
+  }
+
+  private updateBudget(amount: number): void {
+    this.budgetAmountEl.textContent = '$' + amount;
+    const pct = Math.max(0, (amount / PLAYER_STARTING_BUDGET) * 100);
+    this.budgetFillEl.style.width = pct + '%';
+    this.budgetFillEl.style.background = pct > 50 ? '#44aa44' : pct > 25 ? '#ffaa00' : '#ff4444';
+  }
+
+  private triggerGameOver(): void {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.88);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      font-family: monospace; color: white; z-index: 9999;
+    `;
+    overlay.innerHTML = `
+      <div style="font-size:32px; color:#ff4444; margin-bottom:16px;">BUDGET DEPLETED</div>
+      <div style="font-size:14px; color:#aaaaaa; margin-bottom:24px;">The department has been defunded.</div>
+      <button onclick="location.reload()" style="
+        background:#6644aa; color:#fff; border:none;
+        border-radius:6px; padding:10px 24px; font-size:14px;
+        cursor:pointer; font-family:monospace;
+      ">Try Again</button>
+    `;
+    document.body.appendChild(overlay);
+    this.scene.pause('GameScene');
   }
 }

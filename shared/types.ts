@@ -18,6 +18,18 @@ export interface WorldState {
   timeOfDay: string;
   activeEvents: string[];
   agents: AgentState[];
+  playerBudget: number;
+}
+
+// ─── Trading ─────────────────────────────────────────────────────────────────
+
+export type TradeType = 'legal' | 'illegal';
+
+export interface TradeRecord {
+  locationId: string;
+  goods: string;
+  profit: number;
+  timestamp: number;
 }
 
 // ─── Agents ──────────────────────────────────────────────────────────────────
@@ -43,6 +55,10 @@ export interface AgentState {
   targetLocationId: string | null;
   lastDecisionAt: number;
   pendingDecision: boolean;
+  cash: number;
+  tradeType: TradeType;
+  tradeHistory: TradeRecord[];
+  suspicionLevel: number;
 }
 
 // ─── AI Loop ─────────────────────────────────────────────────────────────────

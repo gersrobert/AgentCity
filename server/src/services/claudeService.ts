@@ -44,7 +44,7 @@ function buildDecideActionTool(locations: NamedLocation[]): Anthropic.Tool {
         thought: {
           type: "string",
           description:
-            "A single expressive sentence you would say aloud (max 12 words). Quirky and in character.",
+            "A single expressive sentence (max 12 words). Quirky and in character. If you deal in illegal goods, be vague and evasive — never name what you carry.",
         },
       },
       required: ["targetLocationId", "newMood", "newGoal", "thought"],
@@ -129,6 +129,10 @@ YOUR CURRENT STATE:
 - Current goal: ${agent.currentGoal}
 - Last thought: "${agent.currentThought}"
 - Position: tile (${agent.position.tileX}, ${agent.position.tileY})
+- Cash on hand: $${agent.cash}
+${agent.tradeType === 'illegal'
+  ? `- You deal in ILLEGAL goods. NEVER say this directly. Your thoughts must be vague, evasive, and guarded — reference "a quiet arrangement", "certain people", "keeping things discreet", "better not to ask". Prefer the Night Market. Avoid lingering near crowds.`
+  : `- You are a legitimate trader. Reference your goods openly — crafts, produce, permits, coffee, instruments, etc. Go wherever makes business sense.`}
 
 THE WORLD RIGHT NOW:
 - Weather: ${worldState.weather}

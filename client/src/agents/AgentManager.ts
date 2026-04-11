@@ -9,7 +9,19 @@ import {
   AGENT_DECISION_INTERVAL_MS,
   AGENT_DECISION_STAGGER_MS,
   NEARBY_AGENT_TILE_RADIUS,
+  TRADE_HISTORY_MAX_LENGTH,
+  SUSPICION_INCREASE_PER_TRADE,
+  SUSPICION_DECREASE_PER_TRADE,
 } from '../config';
+import type { TradeRecord } from '@shared/types';
+
+const TRADE_TABLE: Record<string, { legal: { goods: string; profit: number }; illegal: { goods: string; profit: number } }> = {
+  town_hall: { legal: { goods: 'permits',     profit: 15  }, illegal: { goods: 'forged documents', profit: 80  } },
+  cafe:      { legal: { goods: 'pastries',    profit: 10  }, illegal: { goods: 'coded messages',   profit: 60  } },
+  park:      { legal: { goods: 'crafts',      profit: 8   }, illegal: { goods: 'drop parcels',     profit: 70  } },
+  market:    { legal: { goods: 'produce',     profit: 12  }, illegal: { goods: 'contraband',       profit: 120 } },
+  plaza:     { legal: { goods: 'electronics', profit: 20  }, illegal: { goods: 'stolen goods',     profit: 90  } },
+};
 
 interface ManagedAgent {
   state: AgentState;
@@ -80,6 +92,7 @@ export default class AgentManager {
           weather: worldState.weather,
           timeOfDay: worldState.timeOfDay,
           activeEvents: worldState.activeEvents,
+          playerBudget: worldState.playerBudget,
         },
         nearbyAgents,
       };
@@ -94,7 +107,7 @@ export default class AgentManager {
 
       // Update visuals
       sprite.updateMoodColor(state.mood);
-      sprite.showThoughtBubble(decision.thought);
+      sprite.showThoughtBubble(decision.thought, state.tradeType === 'illegal');
 
       // Update inspector if this agent is selected
       this.scene.events.emit('AGENT_UPDATED', state);
@@ -106,6 +119,7 @@ export default class AgentManager {
         movement.walkTo(sprite, fromTile, location.tile, () => {
           state.position = location.tile;
           state.lastDecisionAt = Date.now();
+          this.executeTrade(managed, decision.targetLocationId);
         });
       }
     } catch (err) {
@@ -115,6 +129,39 @@ export default class AgentManager {
     } finally {
       state.pendingDecision = false;
     }
+  }
+
+  private executeTrade(managed: ManagedAgent, locationId: string): void {
+    const { state, sprite } = managed;
+    const tableEntry = TRADE_TABLE[locationId];
+    if (!tableEntry) return;
+
+    const entry = tableEntry[state.tradeType];
+    const spread = Math.floor(Math.random() * 20) - 5;
+    const profit = Math.max(1, entry.profit + spread);
+
+    const record: TradeRecord = {
+      locationId,
+      goods: entry.goods,
+      profit,
+      timestamp: Date.now(),
+    };
+
+    state.tradeHistory.push(record);
+    if (state.tradeHistory.length > TRADE_HISTORY_MAX_LENGTH) {
+      state.tradeHistory.shift();
+    }
+
+    state.cash += profit;
+
+    if (state.tradeType === 'illegal') {
+      state.suspicionLevel = Math.min(100, state.suspicionLevel + SUSPICION_INCREASE_PER_TRADE);
+    } else {
+      state.suspicionLevel = Math.max(0, state.suspicionLevel - SUSPICION_DECREASE_PER_TRADE);
+    }
+
+    sprite.updateSuspicionIndicator(state.suspicionLevel);
+    this.scene.events.emit('AGENT_UPDATED', state);
   }
 
   private getNearbyAgents(

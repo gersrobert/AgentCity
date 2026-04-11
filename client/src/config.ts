@@ -19,3 +19,11 @@ export const AGENT_DECISION_STAGGER_MS = 2000;
 
 // Proximity in tiles to be considered "nearby"
 export const NEARBY_AGENT_TILE_RADIUS = 5;
+
+// ─── Game economy ─────────────────────────────────────────────────────────────
+export const PLAYER_STARTING_BUDGET = 500;
+export const ARREST_CORRECT_REWARD = 200;
+export const ARREST_FALSE_PENALTY = 150;
+export const TRADE_HISTORY_MAX_LENGTH = 10;
+export const SUSPICION_INCREASE_PER_TRADE = 5;
+export const SUSPICION_DECREASE_PER_TRADE = 1;
