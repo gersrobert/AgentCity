@@ -63,4 +63,8 @@ export default class CityMap {
   getRandomPlanetId(): string {
     return PLANETS[Math.floor(Math.random() * PLANETS.length)].id;
   }
+
+  getMapDimensions(): { width: number; height: number } {
+    return { width: this.mapWidth, height: this.mapHeight };
+  }
 }
