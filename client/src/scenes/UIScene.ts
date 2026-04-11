@@ -169,6 +169,7 @@ export default class UIScene extends Phaser.Scene {
   private inspectorPanel!: InspectorPanel;
   private chatPanel!: ChatPanel;
   private selectedAgentId: string | null = null;
+  private _scannedIllegal: string | null = null; // agentId that had contraband, waiting for close
   private budgetAmountEl!: HTMLElement;
   private budgetFillEl!: HTMLElement;
 
@@ -214,10 +215,8 @@ export default class UIScene extends Phaser.Scene {
 
     this.input.keyboard!.on('keydown-ESC', () => {
       if (this.selectedAgentId) {
-        gameScene.events.emit('AGENT_RESUME', this.selectedAgentId);
+        this.handleDismiss(this.selectedAgentId);
       }
-      this.inspectorPanel.hide();
-      this.selectedAgentId = null;
     });
 
     // Relay world events from ChatPanel back to GameScene
@@ -227,7 +226,13 @@ export default class UIScene extends Phaser.Scene {
   }
 
   private handleDismiss(agentId: string): void {
-    this.scene.get('GameScene').events.emit('AGENT_RESUME', agentId);
+    const gameScene = this.scene.get('GameScene');
+    if (this._scannedIllegal === agentId) {
+      gameScene.events.emit('RETRIGGER_AGENT', agentId);
+      this._scannedIllegal = null;
+    } else {
+      gameScene.events.emit('AGENT_RESUME', agentId);
+    }
     this.inspectorPanel.hide();
     this.selectedAgentId = null;
   }
@@ -246,13 +251,14 @@ export default class UIScene extends Phaser.Scene {
       agent.cash -= seized;
       applyBudgetChange(seized);
       this.updateBudget(worldState.playerBudget);
-      gameScene.events.emit('RETRIGGER_AGENT', agentId);
+      // Agent waits — will be retriggered when the player closes the panel
+      this._scannedIllegal = agentId;
     } else {
       const penalty = -ARREST_FALSE_PENALTY;
       this.inspectorPanel.showInspectResult(agent, penalty);
       applyBudgetChange(penalty);
       this.updateBudget(worldState.playerBudget);
-      gameScene.events.emit('AGENT_RESUME', agentId);
+      // Agent waits — will resume when the player closes the panel
     }
 
     if (isGameOver()) {

@@ -5,9 +5,10 @@ import AgentManager from '../agents/AgentManager';
 // The player is a freely-flying glowing orb controlled with WASD / arrow keys.
 // E key inspects a nearby agent (within INSPECT_RANGE px).
 
-const PLAYER_COLOR = 0xffffff;
-const MOVE_SPEED   = 220;          // px/s
-const INSPECT_RANGE = 80;          // px from player centre to agent centre
+const PLAYER_COLOR  = 0xffffff;
+const MOVE_SPEED    = 220;          // px/s
+const INSPECT_RANGE = 80;           // px from player centre to agent centre
+const PLAYER_RADIUS = 6;            // collision radius matches the orb core
 
 export default class PlayerController {
   // Current position (world px)
@@ -108,6 +109,27 @@ export default class PlayerController {
     if (moving) {
       this.x += dx * MOVE_SPEED * dt;
       this.y += dy * MOVE_SPEED * dt;
+
+      // Planet collision — push out and slide along surface
+      for (const planet of this.map.getAllPlanets()) {
+        const pp = this.map.getPlanetPixelPos(planet.id);
+        const minDist = planet.radius + PLAYER_RADIUS;
+        const nx = this.x - pp.x;
+        const ny = this.y - pp.y;
+        const dist = Math.hypot(nx, ny);
+        if (dist < minDist && dist > 0) {
+          // Push player to the surface
+          const norm = 1 / dist;
+          this.x = pp.x + nx * norm * minDist;
+          this.y = pp.y + ny * norm * minDist;
+          // Cancel the velocity component along the normal (sliding)
+          const dot = dx * (nx * norm) + dy * (ny * norm);
+          if (dot < 0) {
+            dx -= dot * (nx * norm);
+            dy -= dot * (ny * norm);
+          }
+        }
+      }
 
       // Trail
       this.trailPoints.push({ x: this.x, y: this.y });
