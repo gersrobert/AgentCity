@@ -8,10 +8,9 @@ import * as backendClient from '../api/backendClient';
 import {
   AGENT_DECISION_INTERVAL_MS,
   AGENT_DECISION_STAGGER_MS,
-  NEARBY_AGENT_TILE_RADIUS,
 } from '../config';
 
-interface ManagedAgent {
+export interface ManagedAgent {
   state: AgentState;
   sprite: AgentSprite;
   movement: MovementController;
@@ -29,30 +28,35 @@ export default class AgentManager {
 
   init(): void {
     worldState.agents.forEach((agentState, i) => {
-      const sprite = new AgentSprite(this.scene, agentState, i);
-      const movement = new MovementController(this.scene, this.map);
+      const pos = this.map.getPlanetPixelPos(agentState.currentPlanetId);
+      const radius = this.map.getPlanetRadius(agentState.currentPlanetId);
 
-      // Make sprite clickable
-      sprite.getCircle().on('pointerdown', () => {
+      const sprite = new AgentSprite(this.scene, agentState, pos.x, pos.y, radius, i);
+      const movement = new MovementController(this.scene);
+
+      sprite.getGraphics().on('pointerdown', () => {
         this.scene.events.emit('AGENT_SELECTED', agentState);
       });
-      sprite.getCircle().on('pointerover', () => {
+      sprite.getGraphics().on('pointerover', () => {
         this.scene.input.setDefaultCursor('pointer');
       });
-      sprite.getCircle().on('pointerout', () => {
+      sprite.getGraphics().on('pointerout', () => {
         this.scene.input.setDefaultCursor('default');
       });
 
-      // Stagger initial decisions so they don't all fire at once
-      agentState.lastDecisionAt = Date.now() - (i * AGENT_DECISION_STAGGER_MS);
+      // Stagger initial decisions
+      agentState.lastDecisionAt = Date.now() - i * AGENT_DECISION_STAGGER_MS;
 
       this.agents.push({ state: agentState, sprite, movement });
     });
   }
 
-  update(_time: number, _delta: number): void {
+  update(_time: number, delta: number): void {
     const now = Date.now();
     for (const managed of this.agents) {
+      // Advance orbital motion every frame
+      managed.sprite.updateOrbit(delta);
+
       const { state } = managed;
       const timeSinceDecision = now - state.lastDecisionAt;
 
@@ -72,7 +76,6 @@ export default class AgentManager {
     state.lastDecisionAt = Date.now();
 
     try {
-      const nearbyAgents = this.getNearbyAgents(state);
       const request: AgentThinkRequest = {
         agent: state,
         worldState: {
@@ -81,12 +84,15 @@ export default class AgentManager {
           timeOfDay: worldState.timeOfDay,
           activeEvents: worldState.activeEvents,
         },
-        nearbyAgents,
+        // All other agents are visible from space
+        nearbyAgents: worldState.agents
+          .filter((a) => a.id !== state.id)
+          .map(({ id, name, mood, currentGoal }) => ({ id, name, mood, currentGoal })),
       };
 
       const decision = await backendClient.agentThink(request);
 
-      // Apply decision to state
+      // Apply state changes
       state.mood = decision.newMood;
       state.currentGoal = decision.newGoal;
       state.currentThought = decision.thought;
@@ -95,39 +101,26 @@ export default class AgentManager {
       // Update visuals
       sprite.updateMoodColor(state.mood);
       sprite.showThoughtBubble(decision.thought);
-
-      // Update inspector if this agent is selected
       this.scene.events.emit('AGENT_UPDATED', state);
 
-      // Move to target
-      const location = this.map.getLocation(decision.targetLocationId);
-      if (location) {
-        const fromTile = this.map.worldToTile(sprite.x, sprite.y);
-        movement.walkTo(sprite, fromTile, location.tile, () => {
-          state.position = location.tile;
-          state.lastDecisionAt = Date.now();
-        });
-      }
+      // Travel to target planet
+      const targetPos = this.map.getPlanetPixelPos(decision.targetLocationId);
+      const targetRadius = this.map.getPlanetRadius(decision.targetLocationId);
+
+      movement.travelTo(sprite, targetPos.x, targetPos.y, targetRadius, () => {
+        state.currentPlanetId = decision.targetLocationId;
+        state.position = {
+          tileX: Math.round(targetPos.x / 32),
+          tileY: Math.round(targetPos.y / 32),
+        };
+        state.lastDecisionAt = Date.now();
+      });
     } catch (err) {
       console.warn(`[AgentManager] Decision failed for ${state.name}:`, err);
-      // Reset lastDecisionAt so the agent retries after the normal interval
       state.lastDecisionAt = Date.now();
     } finally {
       state.pendingDecision = false;
     }
-  }
-
-  private getNearbyAgents(
-    agent: AgentState
-  ): Pick<AgentState, 'id' | 'name' | 'mood' | 'currentGoal'>[] {
-    return worldState.agents
-      .filter((other) => {
-        if (other.id === agent.id) return false;
-        const dx = Math.abs(other.position.tileX - agent.position.tileX);
-        const dy = Math.abs(other.position.tileY - agent.position.tileY);
-        return dx + dy <= NEARBY_AGENT_TILE_RADIUS;
-      })
-      .map(({ id, name, mood, currentGoal }) => ({ id, name, mood, currentGoal }));
   }
 
   getAgents(): ManagedAgent[] {

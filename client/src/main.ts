@@ -9,7 +9,7 @@ const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   width: GAME_WIDTH,
   height: GAME_HEIGHT,
-  backgroundColor: '#2d5a27',
+  backgroundColor: '#000510',
   parent: document.body,
   dom: {
     createContainer: true,

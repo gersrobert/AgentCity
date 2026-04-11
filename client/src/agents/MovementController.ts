@@ -1,71 +1,59 @@
 import Phaser from 'phaser';
-import type { TilePosition } from '@shared/types';
-import CityMap from '../map/CityMap';
 import AgentSprite from './AgentSprite';
-import { TILE_SIZE, TILE_MOVE_DURATION_MS } from '../config';
 
 export default class MovementController {
   private scene: Phaser.Scene;
-  private map: CityMap;
-  private path: TilePosition[] = [];
-  private moving = false;
-  private onArrival: (() => void) | null = null;
+  private activeTween: Phaser.Tweens.Tween | null = null;
+  private _traveling = false;
 
-  constructor(scene: Phaser.Scene, map: CityMap) {
+  constructor(scene: Phaser.Scene) {
     this.scene = scene;
-    this.map = map;
   }
 
-  walkTo(
-    sprite: AgentSprite,
-    from: TilePosition,
-    to: TilePosition,
-    onArrival: () => void
+  travelTo(
+    orb: AgentSprite,
+    toX: number,
+    toY: number,
+    toRadius: number,
+    onArrival: () => void,
   ): void {
-    this.path = this.map.findPath(from, to);
-    this.onArrival = onArrival;
+    this.stop();
 
-    if (this.path.length === 0) {
-      onArrival();
-      return;
-    }
+    orb.traveling = true;
+    this._traveling = true;
 
-    this.moving = true;
-    this.stepToNextTile(sprite);
-  }
+    const dist = Math.hypot(toX - orb.x, toY - orb.y);
+    const duration = Math.max(1800, 800 + dist * 1.8);
 
-  private stepToNextTile(sprite: AgentSprite): void {
-    if (this.path.length === 0) {
-      this.moving = false;
-      this.onArrival?.();
-      return;
-    }
+    // Use an intermediate proxy so the tween drives orb.x / orb.y
+    const pos = { x: orb.x, y: orb.y };
 
-    const next = this.path.shift()!;
-    const worldPos = this.map.tileToWorld(next);
-
-    this.scene.tweens.add({
-      targets: sprite,
-      x: worldPos.x,
-      y: worldPos.y,
-      duration: TILE_MOVE_DURATION_MS,
-      ease: 'Linear',
+    this.activeTween = this.scene.tweens.add({
+      targets: pos,
+      x: toX,
+      y: toY,
+      duration,
+      ease: 'Sine.InOut',
       onUpdate: () => {
-        sprite.setPosition(sprite.x, sprite.y);
+        orb.setPosition(pos.x, pos.y);
+        orb.updateTrail();
       },
       onComplete: () => {
-        sprite.setPosition(worldPos.x, worldPos.y);
-        this.stepToNextTile(sprite);
+        this._traveling = false;
+        this.activeTween = null;
+        orb.arriveAtPlanet(toX, toY, toRadius);
+        onArrival();
       },
     });
   }
 
   isMoving(): boolean {
-    return this.moving;
+    return this._traveling;
   }
 
   stop(): void {
-    this.path = [];
-    this.moving = false;
+    this.activeTween?.stop();
+    this.activeTween = null;
+    this._traveling = false;
   }
 }

@@ -119,7 +119,7 @@ function buildAgentPrompt(req: AgentThinkRequest): string {
       ? `- Active events: ${worldState.activeEvents.join(", ")}`
       : "";
 
-  return `You are ${agent.name}, a character in a quirky pixelated city simulation.
+  return `You are ${agent.name}, a sentient being drifting through a strange and beautiful universe.
 
 YOUR PERSONALITY:
 ${agent.personality}
@@ -128,7 +128,7 @@ YOUR CURRENT STATE:
 - Mood: ${agent.mood}
 - Current goal: ${agent.currentGoal}
 - Last thought: "${agent.currentThought}"
-- Position: tile (${agent.position.tileX}, ${agent.position.tileY})
+- Currently on planet: ${agent.currentPlanetId}
 
 THE WORLD RIGHT NOW:
 - Weather: ${worldState.weather}
@@ -188,7 +188,7 @@ export async function getAgentDecision(
   const response = await client.messages.create({
     model: AGENT_MODEL,
     max_tokens: 256,
-    system: `You are ${req.agent.name}, a character in AgentCity. Always respond using the decide_action tool.`,
+    system: `You are ${req.agent.name}, a sentient being exploring a strange universe of planets. Always respond using the decide_action tool.`,
     messages: [{ role: "user", content: buildAgentPrompt(req) }],
     tools: [buildDecideActionTool(req.worldState.locations)],
     tool_choice: { type: "tool", name: "decide_action" },
