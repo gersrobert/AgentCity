@@ -22,7 +22,13 @@ export default class MovementController {
     orb.traveling = true;
     this._traveling = true;
 
-    const dist = Math.hypot(toX - orb.x, toY - orb.y);
+    // Compute the point on the orbit ring closest to the orb's current position
+    const orbitRadius = toRadius + 22;
+    const entryAngle = Math.atan2(orb.y - toY, orb.x - toX);
+    const entryX = toX + Math.cos(entryAngle) * orbitRadius;
+    const entryY = toY + Math.sin(entryAngle) * orbitRadius;
+
+    const dist = Math.hypot(entryX - orb.x, entryY - orb.y);
     const duration = Math.max(1800, 800 + dist * 1.8);
 
     // Use an intermediate proxy so the tween drives orb.x / orb.y
@@ -30,8 +36,8 @@ export default class MovementController {
 
     this.activeTween = this.scene.tweens.add({
       targets: pos,
-      x: toX,
-      y: toY,
+      x: entryX,
+      y: entryY,
       duration,
       ease: 'Sine.InOut',
       onUpdate: () => {
@@ -41,7 +47,7 @@ export default class MovementController {
       onComplete: () => {
         this._traveling = false;
         this.activeTween = null;
-        orb.arriveAtPlanet(toX, toY, toRadius);
+        orb.arriveAtPlanet(toX, toY, toRadius, entryAngle);
         onArrival();
       },
     });
