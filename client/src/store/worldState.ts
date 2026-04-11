@@ -13,10 +13,10 @@ const initialAgents: AgentState[] = [
     personality:
       "A cheerful city planner who secretly thinks every building should be painted teal. She talks to pigeons and swears they talk back.",
     mood: "happy",
-    currentGoal: "Inspecting the town hall fountain",
+    currentGoal: "Checking out the café",
     currentThought: "This city needs more teal!",
-    position: { tileX: 16, tileY: 8 },
-    targetLocationId: "town_hall",
+    position: { tileX: 16, tileY: 16 },
+    targetLocationId: "cafe",
     lastDecisionAt: 0,
     pendingDecision: false,
     cash: randomCash(),

@@ -29,9 +29,10 @@ export default class GameScene extends Phaser.Scene {
     const mapAreaWidth = GAME_WIDTH - RIGHT_PANEL_WIDTH;
     this.cameras.main.setViewport(0, 0, mapAreaWidth, GAME_HEIGHT);
 
-    // Zoom so the whole map fits in the viewport
+    // Zoom so the whole map fits in the viewport, then center it
     const zoom = Math.min(mapAreaWidth / worldWidth, GAME_HEIGHT / worldHeight);
     this.cameras.main.setZoom(zoom);
+    this.cameras.main.setBounds(0, 0, worldWidth, worldHeight);
     this.cameras.main.centerOn(worldWidth / 2, worldHeight / 2);
 
     // Create map
@@ -44,13 +45,6 @@ export default class GameScene extends Phaser.Scene {
     // Create and init agents
     this.agentManager = new AgentManager(this, this.cityMap);
     this.agentManager.init();
-
-    // Camera: start centered on the plaza
-    const plaza = this.cityMap.getLocation("plaza");
-    if (plaza) {
-      const worldPos = this.cityMap.tileToWorld(plaza.tile);
-      this.cameras.main.centerOn(worldPos.x, worldPos.y);
-    }
 
     // Listen for agent selection
     this.events.on("AGENT_SELECTED", (agent: AgentState) => {
