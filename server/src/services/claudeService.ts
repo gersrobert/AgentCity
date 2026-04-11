@@ -7,21 +7,44 @@ import type {
   Mood,
   NamedLocation,
 } from "../../../shared/types.js";
+import { getSellListings, getBuyListing, getBuyersFor, MARKET } from "../../../shared/market.js";
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
 
-function buildDecideActionTool(locations: NamedLocation[]): Anthropic.Tool {
+function buildDecideActionTool(locations: NamedLocation[], currentLocationId: string | null): Anthropic.Tool {
+  const availableItems = currentLocationId ? getSellListings(currentLocationId).map(l => l.itemName) : [];
+
   return {
     name: "decide_action",
     description:
-      "Decide where to move next, update your mood and goal, and emit a thought bubble.",
+      "Decide where to move next, what to buy here (if anything), update your mood and goal, and emit a thought bubble.",
     input_schema: {
       type: "object" as const,
       properties: {
         targetLocationId: {
           type: "string",
-          description: "The id of the location to walk toward.",
+          description: "The id of the location to walk toward to sell your goods.",
           enum: locations.map((l) => l.id),
+        },
+        purchase: {
+          type: "object",
+          description: availableItems.length > 0
+            ? "Item to buy here before leaving. Choose based on profit potential. Omit or set to null if you cannot afford anything or choose not to buy."
+            : "No goods available for purchase at this location. Omit this field.",
+          properties: {
+            itemName: {
+              type: "string",
+              enum: availableItems.length > 0 ? availableItems : ["none"],
+              description: "Name of the item to purchase.",
+            },
+            quantity: {
+              type: "integer",
+              minimum: 1,
+              maximum: 5,
+              description: "Number of units to buy. You pay buyPrice × quantity upfront.",
+            },
+          },
+          required: ["itemName", "quantity"],
         },
         newMood: {
           type: "string",
@@ -44,7 +67,7 @@ function buildDecideActionTool(locations: NamedLocation[]): Anthropic.Tool {
         thought: {
           type: "string",
           description:
-            "A single expressive sentence (max 12 words). Quirky and in character. If you deal in illegal goods, be vague and evasive — never name what you carry.",
+            "A single expressive sentence (max 12 words). Quirky and in character. If carrying risky goods, be vague and guarded — never name what you carry.",
         },
       },
       required: ["targetLocationId", "newMood", "newGoal", "thought"],
@@ -128,11 +151,43 @@ YOUR CURRENT STATE:
 - Mood: ${agent.mood}
 - Current goal: ${agent.currentGoal}
 - Last thought: "${agent.currentThought}"
-- Position: tile (${agent.position.tileX}, ${agent.position.tileY})
 - Cash on hand: $${agent.cash}
-${agent.tradeType === 'illegal'
-  ? `- You deal in ILLEGAL goods. NEVER say this directly. Your thoughts must be vague, evasive, and guarded — reference "a quiet arrangement", "certain people", "keeping things discreet", "better not to ask". Prefer the Night Market. Avoid lingering near crowds.`
-  : `- You are a legitimate trader. Reference your goods openly — crafts, produce, permits, coffee, instruments, etc. Go wherever makes business sense.`}
+- Carrying: ${agent.inventory ? `${agent.inventory.quantity}x ${agent.inventory.name} (paid $${agent.inventory.buyPrice * agent.inventory.quantity} total)` : 'nothing'}
+
+AT THIS LOCATION (${agent.targetLocationId ?? 'unknown'}):
+FOR SALE (you can buy):
+${(() => {
+  const listings = agent.targetLocationId ? getSellListings(agent.targetLocationId) : [];
+  if (listings.length === 0) return '  (nothing for sale here)';
+  return listings.map(l => {
+    const buyers = getBuyersFor(l.itemName);
+    const bestBuyer = buyers[0];
+    const margin = bestBuyer ? bestBuyer.price - l.price : 0;
+    const buyerNote = bestBuyer ? `best buyer: ${bestBuyer.locationId} pays $${bestBuyer.price} (+$${margin})` : 'no known buyers';
+    return `  - ${l.itemName}: $${l.price}/unit  [${buyerNote}]`;
+  }).join('\n');
+})()}
+WILL BUY FROM YOU:
+${(() => {
+  const loc = agent.targetLocationId;
+  if (!loc) return '  (unknown)';
+  const inv = agent.inventory;
+  if (!inv) return '  (you are carrying nothing)';
+  const listing = getBuyListing(loc, inv.name);
+  if (!listing) return `  (does not buy ${inv.name})`;
+  const revenue = listing.price * inv.quantity;
+  const cost = inv.buyPrice * inv.quantity;
+  return `  - ${inv.quantity}x ${inv.name} → $${listing.price}/unit = $${revenue} revenue (you paid $${cost}, profit +$${revenue - cost})`;
+})()}
+
+ALL MARKET PRICES (plan your routes):
+${Object.entries(MARKET).map(([locId, mkt]) => {
+  const sells = mkt.sells.map(l => `${l.itemName} $${l.price}`).join(', ');
+  const buys  = mkt.buys.map(l => `${l.itemName} $${l.price}`).join(', ');
+  return `  ${locId}: sells [${sells || 'nothing'}]  |  buys [${buys || 'nothing'}]`;
+}).join('\n')}
+
+You can carry only one item type (1–5 units). You must sell your goods at a location that buys them — not every location accepts every item. High-margin items carry risk; be discreet.
 
 THE WORLD RIGHT NOW:
 - Weather: ${worldState.weather}
@@ -194,7 +249,7 @@ export async function getAgentDecision(
     max_tokens: 256,
     system: `You are ${req.agent.name}, a character in AgentCity. Always respond using the decide_action tool.`,
     messages: [{ role: "user", content: buildAgentPrompt(req) }],
-    tools: [buildDecideActionTool(req.worldState.locations)],
+    tools: [buildDecideActionTool(req.worldState.locations, req.agent.targetLocationId)],
     tool_choice: { type: "tool", name: "decide_action" },
   });
 
@@ -203,12 +258,19 @@ export async function getAgentDecision(
     throw new Error("Claude did not return a tool_use block");
   }
 
-  const input = toolUse.input as AgentDecision;
+  const input = toolUse.input as {
+    targetLocationId: string;
+    newMood: string;
+    newGoal: string;
+    thought: string;
+    purchase?: { itemName: string; quantity: number } | null;
+  };
   return {
     targetLocationId: input.targetLocationId,
     newMood: input.newMood as Mood,
     newGoal: input.newGoal,
     thought: input.thought,
+    purchase: input.purchase ?? null,
   };
 }
 

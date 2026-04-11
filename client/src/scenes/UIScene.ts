@@ -213,7 +213,9 @@ export default class UIScene extends Phaser.Scene {
     const agent = worldState.agents.find(a => a.id === agentId);
     if (!agent) return;
 
-    const delta = agent.tradeType === 'illegal' ? ARREST_CORRECT_REWARD : -ARREST_FALSE_PENALTY;
+    const hasIllegalActivity =
+      agent.tradeHistory.some(r => r.isIllegal) || (agent.inventory?.isIllegal ?? false);
+    const delta = hasIllegalActivity ? ARREST_CORRECT_REWARD : -ARREST_FALSE_PENALTY;
     applyBudgetChange(delta);
     this.inspectorPanel.showInspectResult(agent, delta);
     this.updateBudget(worldState.playerBudget);

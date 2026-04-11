@@ -54,6 +54,12 @@ export default class InspectorPanel {
     });
   }
 
+  private formatInventory(agent: AgentState): string {
+    if (!agent.inventory) return 'empty';
+    const flag = agent.inventory.isIllegal ? ' ⚠' : '';
+    return `${agent.inventory.quantity}x ${agent.inventory.name}${flag}`;
+  }
+
   show(agent: AgentState): void {
     this.currentAgentId = agent.id;
     this.nameEl.textContent = agent.name;
@@ -61,7 +67,7 @@ export default class InspectorPanel {
     this.personalityEl.textContent = agent.personality;
     this.goalEl.textContent = agent.currentGoal;
     this.thoughtEl.textContent = `"${agent.currentThought}"`;
-    this.cashEl.textContent = `$${agent.cash}`;
+    this.cashEl.textContent = `$${agent.cash} · carrying: ${this.formatInventory(agent)}`;
 
     // Reset investigation state
     this.resultEl.style.display = 'none';
@@ -77,12 +83,13 @@ export default class InspectorPanel {
       this.thoughtEl.textContent = `"${agent.currentThought}"`;
       this.goalEl.textContent = agent.currentGoal;
       this.moodEl.textContent = `${agent.mood} ${MOOD_EMOJI[agent.mood] ?? ''}`;
-      this.cashEl.textContent = `$${agent.cash}`;
+      this.cashEl.textContent = `$${agent.cash} · carrying: ${this.formatInventory(agent)}`;
     }
   }
 
   showInspectResult(agent: AgentState, budgetDelta: number): void {
-    const isIllegal = agent.tradeType === 'illegal';
+    const illegalTrades = agent.tradeHistory.filter(r => r.isIllegal).length;
+    const isIllegal = illegalTrades > 0 || (agent.inventory?.isIllegal ?? false);
 
     this.resultTextEl.innerHTML = isIllegal
       ? `<span style="color:#ff6644;font-weight:bold;">ILLEGAL TRADER CONFIRMED</span><br><span style="color:#aaffaa">+$${budgetDelta} budget awarded.</span>`
@@ -94,7 +101,8 @@ export default class InspectorPanel {
     this.tradeEntriesEl.innerHTML = entries.length > 0
       ? entries.map(r => {
           const t = new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          return `${t} — ${r.goods} @ ${r.locationId} <span style="color:#aaffaa">+$${r.profit}</span>`;
+          const flag = r.isIllegal ? ' <span style="color:#ff8844">⚠</span>' : '';
+          return `${t} — ${r.quantity}x ${r.goods}${flag} @ ${r.locationId} <span style="color:#aaffaa">+$${r.profit}</span>`;
         }).join('<br>')
       : 'No trades recorded yet.';
 

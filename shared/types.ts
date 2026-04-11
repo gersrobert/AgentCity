@@ -23,12 +23,19 @@ export interface WorldState {
 
 // ─── Trading ─────────────────────────────────────────────────────────────────
 
-export type TradeType = 'legal' | 'illegal';
+export interface InventoryItem {
+  name: string;
+  quantity: number;
+  isIllegal: boolean;
+  buyPrice: number;
+}
 
 export interface TradeRecord {
   locationId: string;
   goods: string;
+  quantity: number;
   profit: number;
+  isIllegal: boolean;
   timestamp: number;
 }
 
@@ -56,7 +63,7 @@ export interface AgentState {
   lastDecisionAt: number;
   pendingDecision: boolean;
   cash: number;
-  tradeType: TradeType;
+  inventory: InventoryItem | null;
   tradeHistory: TradeRecord[];
   suspicionLevel: number;
 }
@@ -74,6 +81,7 @@ export interface AgentDecision {
   newMood: Mood;
   newGoal: string;
   thought: string;
+  purchase: { itemName: string; quantity: number } | null;
 }
 
 // ─── Game Master ─────────────────────────────────────────────────────────────

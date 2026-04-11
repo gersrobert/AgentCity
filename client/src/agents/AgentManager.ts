@@ -13,15 +13,7 @@ import {
   SUSPICION_INCREASE_PER_TRADE,
   SUSPICION_DECREASE_PER_TRADE,
 } from '../config';
-import type { TradeRecord } from '@shared/types';
-
-const TRADE_TABLE: Record<string, { legal: { goods: string; profit: number }; illegal: { goods: string; profit: number } }> = {
-  town_hall: { legal: { goods: 'permits',     profit: 15  }, illegal: { goods: 'forged documents', profit: 80  } },
-  cafe:      { legal: { goods: 'pastries',    profit: 10  }, illegal: { goods: 'coded messages',   profit: 60  } },
-  park:      { legal: { goods: 'crafts',      profit: 8   }, illegal: { goods: 'drop parcels',     profit: 70  } },
-  market:    { legal: { goods: 'produce',     profit: 12  }, illegal: { goods: 'contraband',       profit: 120 } },
-  plaza:     { legal: { goods: 'electronics', profit: 20  }, illegal: { goods: 'stolen goods',     profit: 90  } },
-};
+import { getBuyListing, getSellListings } from '../../../shared/market';
 
 interface ManagedAgent {
   state: AgentState;
@@ -99,6 +91,11 @@ export default class AgentManager {
 
       const decision = await backendClient.agentThink(request);
 
+      // Sell current inventory at this location (if it buys the item), then buy
+      const currentLocation = state.targetLocationId;
+      this.executeSell(managed, currentLocation);
+      this.executeBuy(managed, currentLocation, decision.purchase);
+
       // Apply decision to state
       state.mood = decision.newMood;
       state.currentGoal = decision.newGoal;
@@ -107,7 +104,8 @@ export default class AgentManager {
 
       // Update visuals
       sprite.updateMoodColor(state.mood);
-      sprite.showThoughtBubble(decision.thought, state.tradeType === 'illegal');
+      sprite.showThoughtBubble(decision.thought, state.inventory?.isIllegal ?? false);
+      sprite.updateSuspicionIndicator(state.suspicionLevel);
 
       // Update inspector if this agent is selected
       this.scene.events.emit('AGENT_UPDATED', state);
@@ -119,49 +117,76 @@ export default class AgentManager {
         movement.walkTo(sprite, fromTile, location.tile, () => {
           state.position = location.tile;
           state.lastDecisionAt = Date.now();
-          this.executeTrade(managed, decision.targetLocationId);
         });
       }
     } catch (err) {
       console.warn(`[AgentManager] Decision failed for ${state.name}:`, err);
-      // Reset lastDecisionAt so the agent retries after the normal interval
       state.lastDecisionAt = Date.now();
     } finally {
       state.pendingDecision = false;
     }
   }
 
-  private executeTrade(managed: ManagedAgent, locationId: string): void {
-    const { state, sprite } = managed;
-    const tableEntry = TRADE_TABLE[locationId];
-    if (!tableEntry) return;
+  /**
+   * Sell current inventory at this location — only if the location buys that item.
+   * If the location doesn't buy it, the agent keeps their goods and moves on.
+   */
+  private executeSell(managed: ManagedAgent, locationId: string | null): void {
+    const { state } = managed;
+    if (!state.inventory || !locationId) return;
 
-    const entry = tableEntry[state.tradeType];
-    const spread = Math.floor(Math.random() * 20) - 5;
-    const profit = Math.max(1, entry.profit + spread);
+    const listing = getBuyListing(locationId, state.inventory.name);
+    if (!listing) return; // this location doesn't buy what we're carrying
 
-    const record: TradeRecord = {
+    const revenue = listing.price * state.inventory.quantity;
+    const cost = state.inventory.buyPrice * state.inventory.quantity;
+    const profit = revenue - cost;
+
+    state.tradeHistory.push({
       locationId,
-      goods: entry.goods,
+      goods: state.inventory.name,
+      quantity: state.inventory.quantity,
       profit,
+      isIllegal: state.inventory.isIllegal,
       timestamp: Date.now(),
-    };
-
-    state.tradeHistory.push(record);
+    });
     if (state.tradeHistory.length > TRADE_HISTORY_MAX_LENGTH) {
       state.tradeHistory.shift();
     }
 
-    state.cash += profit;
+    state.cash += revenue;
+    state.inventory = null;
 
-    if (state.tradeType === 'illegal') {
+    if (listing.isIllegal) {
       state.suspicionLevel = Math.min(100, state.suspicionLevel + SUSPICION_INCREASE_PER_TRADE);
     } else {
       state.suspicionLevel = Math.max(0, state.suspicionLevel - SUSPICION_DECREASE_PER_TRADE);
     }
+  }
 
-    sprite.updateSuspicionIndicator(state.suspicionLevel);
-    this.scene.events.emit('AGENT_UPDATED', state);
+  /**
+   * Buy goods based on Claude's purchase decision.
+   * Only executes if the agent has empty hands and the item is actually sold here.
+   */
+  private executeBuy(managed: ManagedAgent, locationId: string | null, purchase: { itemName: string; quantity: number } | null): void {
+    const { state } = managed;
+    if (!purchase || purchase.itemName === 'none' || !locationId) return;
+    if (state.inventory) return; // already carrying something
+
+    const listing = getSellListings(locationId).find(l => l.itemName === purchase.itemName);
+    if (!listing) return; // item not sold here
+
+    const qty = Math.min(Math.max(1, purchase.quantity), 5);
+    const totalCost = listing.price * qty;
+    if (state.cash < totalCost) return;
+
+    state.cash -= totalCost;
+    state.inventory = {
+      name: listing.itemName,
+      quantity: qty,
+      isIllegal: listing.isIllegal,
+      buyPrice: listing.price,
+    };
   }
 
   private getNearbyAgents(
