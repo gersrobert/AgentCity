@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import CityMap from '../map/CityMap';
 import AgentManager from '../agents/AgentManager';
+import RocketController from '../player/RocketController';
 import { PLANETS, PlanetData } from '../map/mapData';
 import {
   GAME_WIDTH,
@@ -15,6 +16,7 @@ import type { WorldEvent, AgentState } from '@shared/types';
 export default class GameScene extends Phaser.Scene {
   private cityMap!: CityMap;
   private agentManager!: AgentManager;
+  private rocket!: RocketController;
   private planetImages: Phaser.GameObjects.Image[] = [];
   private planetRotSpeeds: number[] = [];
   private selectedAgentId: string | null = null;
@@ -44,6 +46,9 @@ export default class GameScene extends Phaser.Scene {
     this.agentManager = new AgentManager(this, this.cityMap);
     this.agentManager.init();
 
+    // ── Player rocket ────────────────────────────────────────────────────────
+    this.rocket = new RocketController(this, mapWidth / 2, mapHeight / 2, mapWidth, mapHeight);
+
     // ── Events ──────────────────────────────────────────────────────────────
     this.events.on('AGENT_SELECTED', (agent: AgentState) => {
       this.selectedAgentId = agent.id;
@@ -62,6 +67,7 @@ export default class GameScene extends Phaser.Scene {
       this.planetImages[i].angle += this.planetRotSpeeds[i] * (delta / 1000);
     }
 
+    this.rocket.update(delta);
     this.agentManager.update(_time, delta);
   }
 
