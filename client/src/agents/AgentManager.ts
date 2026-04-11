@@ -12,7 +12,7 @@ import {
   TRACE_AGENT_DECISIONS,
   BLACKHOLE_GROWTH_PER_DELIVERY,
 } from '../config';
-import { getBuyListing, getSellListings } from '@shared/market';
+import { getBuyListing, getSellListings, ILLEGAL_CASH_RESERVE } from '@shared/market';
 
 export interface AgentDecisionTrace {
   agentName: string;
@@ -247,7 +247,8 @@ export default class AgentManager {
 
     const qty = listing.isIllegal ? 1 : Math.min(Math.max(1, purchase.quantity), 5);
     const totalCost = listing.price * qty;
-    if (state.cash < totalCost) return null;
+    const minCashRequired = listing.isIllegal ? totalCost + ILLEGAL_CASH_RESERVE : totalCost;
+    if (state.cash < minCashRequired) return null;
 
     state.cash -= totalCost;
     state.inventory.push({
@@ -297,6 +298,52 @@ export default class AgentManager {
     } else {
       m.state.lastDecisionAt = Date.now() - AGENT_DECISION_INTERVAL_MS;
     }
+  }
+
+  /** Spawn a new agent into the live game, assigned to a random active planet. */
+  addAgent(agentState: AgentState): void {
+    const { width: mapW, height: mapH } = this.map.getMapDimensions();
+
+    // Pick a random currently-active non-blackhole planet
+    const activePlanets = worldState.locations.filter(l => l.id !== 'blackhole');
+    const startLoc = activePlanets[Math.floor(Math.random() * activePlanets.length)];
+    agentState.currentPlanetId = startLoc.id;
+    agentState.targetLocationId = startLoc.id;
+    agentState.position = startLoc.tile;
+    agentState.lastDecisionAt = Date.now() - AGENT_DECISION_INTERVAL_MS;
+
+    const pos = this.map.getPlanetPixelPos(startLoc.id);
+    const radius = this.map.getPlanetRadius(startLoc.id);
+    const idx = this.agents.length;
+
+    const sprite = new AgentSprite(this.scene, agentState, pos.x, pos.y, radius, idx);
+    sprite.setBounds(mapW, mapH);
+
+    sprite.getGraphics().on('pointerdown', () => {
+      this.scene.events.emit('AGENT_SELECTED', agentState);
+    });
+    sprite.getGraphics().on('pointerover', () => {
+      this.scene.input.setDefaultCursor('pointer');
+    });
+    sprite.getGraphics().on('pointerout', () => {
+      this.scene.input.setDefaultCursor('default');
+    });
+
+    const movement = new MovementController(this.scene);
+    this.agents.push({ state: agentState, sprite, movement, paused: false, activeTrip: null });
+  }
+
+  /** Remove an agent from the game entirely (sprite destroyed, no longer updated). */
+  killAgent(agentId: string): void {
+    const idx = this.agents.findIndex(a => a.state.id === agentId);
+    if (idx === -1) return;
+    const m = this.agents[idx];
+    m.movement.stop();
+    m.sprite.destroy();
+    this.agents.splice(idx, 1);
+    // Also remove from worldState so Claude doesn't see them
+    const wsIdx = worldState.agents.findIndex(a => a.id === agentId);
+    if (wsIdx !== -1) worldState.agents.splice(wsIdx, 1);
   }
 
   retriggerAgent(agentId: string): void {

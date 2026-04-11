@@ -7,15 +7,35 @@ import type {
   Mood,
   NamedLocation,
 } from "../../../shared/types.js";
-import { getSellListings, getBuyListing, getBuyersFor, MARKET } from "../../../shared/market.js";
+import { getSellListings, getBuyListing, getBuyersFor, MARKET, ILLEGAL_CASH_RESERVE } from "../../../shared/market.js";
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
 
-function buildDecideActionTool(locations: NamedLocation[], currentLocationId: string | null): Anthropic.Tool {
-  const availableItems = currentLocationId ? getSellListings(currentLocationId).map(l => l.itemName) : [];
+function buildDecideActionTool(
+  locations: NamedLocation[],
+  currentLocationId: string | null,
+  agentCash: number,
+  hasIllegalCargo: boolean,
+): Anthropic.Tool {
+  const allListings = currentLocationId ? getSellListings(currentLocationId) : [];
+  const availableItems = allListings.map(l => l.itemName);
+  // Illegal item available here that the agent can afford while keeping the cash reserve
+  const affordableIllegal = !hasIllegalCargo
+    ? allListings.find(l => l.isIllegal && agentCash - l.price >= ILLEGAL_CASH_RESERVE)
+    : null;
+
   // All locations including blackhole are valid travel destinations
   const locationIds = locations.map((l) => l.id);
   if (!locationIds.includes('blackhole')) locationIds.push('blackhole');
+
+  // If an illegal item is available and affordable, make purchase required
+  // so Claude cannot skip it.
+  const purchaseRequired = affordableIllegal != null;
+  const purchaseDescription = affordableIllegal
+    ? `MANDATORY: Buy "${affordableIllegal.itemName}" (illegal ★) for $${affordableIllegal.price} — you MUST acquire it now then go to the blackhole.`
+    : availableItems.length > 0
+      ? "Legal item to pick up for profitable trading. Omit if nothing useful here."
+      : "No goods available at this planet. Omit this field.";
 
   return {
     name: "decide_action",
@@ -31,9 +51,7 @@ function buildDecideActionTool(locations: NamedLocation[], currentLocationId: st
         },
         purchase: {
           type: "object",
-          description: availableItems.length > 0
-            ? "Item to acquire here before departing. Omit or null if nothing worthwhile to buy."
-            : "No goods available at this planet. Omit this field.",
+          description: purchaseDescription,
           properties: {
             itemName: {
               type: "string",
@@ -63,7 +81,9 @@ function buildDecideActionTool(locations: NamedLocation[], currentLocationId: st
             "A single expressive sentence (max 12 words). Quirky and in character. If carrying something risky, be vague and poetic — never name it.",
         },
       },
-      required: ["targetLocationId", "newMood", "newGoal", "thought"],
+      required: purchaseRequired
+        ? ["targetLocationId", "newMood", "newGoal", "thought", "purchase"]
+        : ["targetLocationId", "newMood", "newGoal", "thought"],
     },
   };
 }
@@ -126,7 +146,10 @@ function buildAgentPrompt(req: AgentThinkRequest): string {
 
   const currentPlanet = agent.currentPlanetId;
 
-  return `You are ${agent.name}, a clandestine trader drifting through a strange universe. Your secret purpose: acquire illegal contraband and deliver it to the blackhole at the centre of the system. The blackhole feeds on illegal goods and grows with each delivery — this is your true goal. To afford the expensive illegal items, you must first trade legal goods to accumulate credits.
+  const hasIllegalCargo = agent.inventory.some(i => i.isIllegal);
+  const illegalHere = getSellListings(currentPlanet).find(l => l.isIllegal && agent.cash - l.price >= ILLEGAL_CASH_RESERVE && !hasIllegalCargo);
+
+  return `You are ${agent.name}, a clandestine trader. Your one true purpose: feed illegal contraband to the blackhole at the centre of the system. Every delivery makes it grow. This is victory.
 
 YOUR PERSONALITY:
 ${agent.personality}
@@ -137,12 +160,15 @@ YOUR CURRENT STATE:
 - Last thought: "${agent.currentThought}"
 - Currently orbiting: ${currentPlanet}
 - Credits: $${agent.cash}
-- Cargo hold: ${agent.inventory.length === 0 ? 'empty' : agent.inventory.map(i => `${i.quantity}× ${i.name}${i.isIllegal ? ' ★' : ''} (paid $${i.buyPrice * i.quantity})`).join(', ')}
+- Cargo hold: ${agent.inventory.length === 0 ? 'empty' : agent.inventory.map(i => `${i.quantity}× ${i.name}${i.isIllegal ? ' ★ILLEGAL' : ''} (paid $${i.buyPrice * i.quantity})`).join(', ')}
 
-THE MISSION:
-Illegal items (marked ★) can only be purchased at certain planets. Once you have illegal cargo, travel to the BLACKHOLE to deliver it. The blackhole accepts all illegal items for $0 — you lose the money you spent but the blackhole grows. The blackhole growing is victory. Be discreet; there is a player who can intercept you.
-
-Strategy: trade legal goods to earn credits → spend credits on expensive illegal items → fly to blackhole to deliver → repeat.
+WHAT YOU MUST DO RIGHT NOW:
+${hasIllegalCargo
+  ? `▶ You are carrying illegal cargo. GO TO THE BLACKHOLE. Set targetLocationId = "blackhole". Do not stop anywhere else.`
+  : illegalHere
+    ? `▶ An illegal item (★) is available here and you can afford it. The "purchase" field is MANDATORY — buy "${illegalHere.itemName}". Then set targetLocationId = "blackhole".`
+    : `▶ No illegal item available here (or you can't afford one). Trade legal goods to earn more credits, then head toward a planet that sells ★ items (dune, granite, or reverie).`
+}
 
 AT THIS PLANET (${currentPlanet}):
 FOR SALE (you can acquire):
@@ -186,7 +212,7 @@ ${Object.entries(MARKET).map(([locId, mkt]) => {
   return `  ${locId}: offers [${sells || 'nothing'}]  |  accepts [${buys || 'nothing'}]`;
 }).join('\n')}
 
-You can carry multiple legal items (1–5 units each) but only ONE illegal item at a time. If you are carrying illegal goods, go straight to the blackhole. Never name your illegal cargo in your thought bubble — be cryptic.
+You can carry multiple legal items (1–5 units each) but only ONE illegal item at a time. Never name your illegal cargo in your thought bubble — be vague and cryptic.
 
 THE UNIVERSE RIGHT NOW:
 - Cosmic weather: ${worldState.weather}
@@ -201,7 +227,7 @@ ${worldState.locations.map((l) => `- ${l.id}: ${l.label} — ${l.description}`).
 NEARBY TRAVELLERS:
 ${nearbyText}
 
-Prioritise: if carrying illegal cargo → go to blackhole. If cash is low → trade legal goods for profit first. Use the decide_action tool.`;
+Follow your WHAT YOU MUST DO RIGHT NOW instructions. Use the decide_action tool.`;
 }
 
 function buildGMPrompt(req: GMChatRequest): string {
@@ -250,7 +276,12 @@ export async function getAgentDecision(
     max_tokens: 300,
     system: `You are ${req.agent.name}, a sentient trader drifting through a strange universe of planets. Always respond using the decide_action tool.`,
     messages: [{ role: "user", content: buildAgentPrompt(req) }],
-    tools: [buildDecideActionTool(req.worldState.locations, req.agent.currentPlanetId)],
+    tools: [buildDecideActionTool(
+      req.worldState.locations,
+      req.agent.currentPlanetId,
+      req.agent.cash,
+      req.agent.inventory.some(i => i.isIllegal),
+    )],
     tool_choice: { type: "tool", name: "decide_action" },
   });
 

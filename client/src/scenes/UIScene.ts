@@ -235,7 +235,7 @@ export default class UIScene extends Phaser.Scene {
   private handleDismiss(agentId: string): void {
     const gameScene = this.scene.get('GameScene');
     if (this._scannedIllegal === agentId) {
-      gameScene.events.emit('FLEE_AGENT', agentId);
+      gameScene.events.emit('KILL_AGENT', agentId);
       this._scannedIllegal = null;
     } else {
       gameScene.events.emit('AGENT_RESUME', agentId);
