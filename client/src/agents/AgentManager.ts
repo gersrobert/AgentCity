@@ -259,4 +259,48 @@ export default class AgentManager {
   getAgents(): ManagedAgent[] {
     return this.agents;
   }
+
+  /** Play a random explosion at the agent's position, then permanently remove them. */
+  explodeAgent(agentId: string): void {
+    const idx = this.agents.findIndex(a => a.state.id === agentId);
+    if (idx === -1) return;
+
+    const managed = this.agents[idx];
+    const { x, y } = managed.sprite;
+
+    // Pick a random animation set
+    const variants = [
+      { prefix: 'exp-d-', frames: 12 },
+      { prefix: 'exp-f-', frames: 8 },
+      { prefix: 'exp-g-', frames: 7 },
+      { prefix: 'exp-b-', frames: 12 },
+    ];
+    const pick = variants[Math.floor(Math.random() * variants.length)];
+
+    // Destroy the agent sprite immediately so it vanishes
+    managed.sprite.destroy();
+    managed.movement.stop();
+    this.agents.splice(idx, 1);
+    // Also remove from worldState so it no longer participates in AI calls
+    const wsIdx = worldState.agents.findIndex(a => a.id === agentId);
+    if (wsIdx !== -1) worldState.agents.splice(wsIdx, 1);
+
+    // Animate the explosion using individual image frames via a timer
+    const SIZE = 120;
+    const img = this.scene.add.image(x, y, `${pick.prefix}1`).setDisplaySize(SIZE, SIZE).setDepth(50);
+    let frame = 1;
+
+    this.scene.time.addEvent({
+      delay: 55,
+      repeat: pick.frames - 1,
+      callback: () => {
+        frame++;
+        if (frame <= pick.frames) {
+          img.setTexture(`${pick.prefix}${frame}`);
+        } else {
+          img.destroy();
+        }
+      },
+    });
+  }
 }

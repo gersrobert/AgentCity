@@ -1,21 +1,18 @@
-import Phaser from 'phaser';
-import CityMap from '../map/CityMap';
-import AgentManager from '../agents/AgentManager';
+import Phaser from "phaser";
+import CityMap from "../map/CityMap";
+import AgentManager from "../agents/AgentManager";
 
 // ── Tuning ────────────────────────────────────────────────────────────────────
-const TURN_SPEED    = 180;   // degrees per second while A/D held
-const THRUST        = 320;   // px/s² acceleration
-const MAX_SPEED     = 420;   // px/s terminal velocity
-const DRAG          = 0.97;  // velocity multiplier per frame (friction)
-const ROCKET_RADIUS = 8;     // collision radius used for planet push-out
-const INSPECT_RANGE = 90;    // px from rocket centre to agent centre
+const TURN_SPEED = 180; // degrees per second while A/D held
+const THRUST = 320; // px/s² acceleration
+const MAX_SPEED = 420; // px/s terminal velocity
+const DRAG = 0.98; // velocity multiplier per frame (friction)
+const INSPECT_RANGE = 90; // px from rocket centre to agent centre
 
-// ── Rocket geometry (drawn at origin, pointing UP) ────────────────────────────
-const BODY_W = 10;
-const BODY_H = 22;
-const NOSE_H = 10;
-const WING_W = 8;
-const WING_H = 7;
+// Ship display size (height in px; width scales proportionally from 421×387 source)
+const SHIP_HEIGHT = 34;
+const SHIP_WIDTH = Math.round(SHIP_HEIGHT * (421 / 387)); // ≈ 37
+const ROCKET_RADIUS = SHIP_HEIGHT * 0.3; // collision radius
 
 export default class RocketController {
   // World position (used externally for inspect checks etc.)
@@ -62,63 +59,41 @@ export default class RocketController {
     this.mapWidth = width;
     this.mapHeight = height;
 
-    // ── Body graphics ─────────────────────────────────────────────────────────
-    const bodyGfx = scene.add.graphics();
+    // ── Ship image ────────────────────────────────────────────────────────────
+    const shipImg = scene.add.image(0, 0, "player_ship");
+    shipImg.setDisplaySize(SHIP_WIDTH, SHIP_HEIGHT);
 
-    // Main body rectangle
-    bodyGfx.fillStyle(0xddeeff, 1);
-    bodyGfx.fillRect(-BODY_W / 2, -BODY_H / 2, BODY_W, BODY_H);
-
-    // Nose cone
-    bodyGfx.fillStyle(0xffffff, 0.95);
-    bodyGfx.fillTriangle(
-      0,           -(BODY_H / 2 + NOSE_H),
-      -BODY_W / 2, -BODY_H / 2,
-       BODY_W / 2, -BODY_H / 2,
-    );
-
-    // Left wing
-    bodyGfx.fillStyle(0x88bbee, 0.9);
-    bodyGfx.fillTriangle(
-      -BODY_W / 2,           BODY_H / 2 - WING_H,
-      -BODY_W / 2 - WING_W,  BODY_H / 2,
-      -BODY_W / 2,            BODY_H / 2,
-    );
-
-    // Right wing
-    bodyGfx.fillTriangle(
-       BODY_W / 2,           BODY_H / 2 - WING_H,
-       BODY_W / 2,            BODY_H / 2,
-       BODY_W / 2 + WING_W,  BODY_H / 2,
-    );
-
-    // Engine nozzle
-    bodyGfx.fillStyle(0x334455, 1);
-    bodyGfx.fillRect(-BODY_W / 2, BODY_H / 2 - 4, BODY_W, 4);
-
-    // ── Thruster flame (redrawn each frame) ───────────────────────────────────
+    // ── Thruster flame (redrawn each frame, sits behind the ship) ─────────────
     this.thrusterGfx = scene.add.graphics();
 
     // ── Container ─────────────────────────────────────────────────────────────
-    this.container = scene.add.container(x, y, [this.thrusterGfx, bodyGfx]);
+    // thrusterGfx first so it renders behind the ship
+    this.container = scene.add.container(x, y, [this.thrusterGfx, shipImg]);
     this.container.setDepth(12);
 
     // ── Labels ────────────────────────────────────────────────────────────────
-    this.labelText = scene.add.text(x, y - 34, 'YOU', {
-      fontSize: '10px',
-      color: '#88ccff',
-      stroke: '#000000',
-      strokeThickness: 3,
-      resolution: 2,
-    }).setOrigin(0.5, 1).setDepth(13);
+    this.labelText = scene.add
+      .text(x, y - 34, "YOU", {
+        fontSize: "10px",
+        color: "#88ccff",
+        stroke: "#000000",
+        strokeThickness: 3,
+        resolution: 2,
+      })
+      .setOrigin(0.5, 1)
+      .setDepth(13);
 
-    this.promptText = scene.add.text(x, y - 46, '[E] Inspect', {
-      fontSize: '8px',
-      color: '#ffdd44',
-      stroke: '#000000',
-      strokeThickness: 2,
-      resolution: 2,
-    }).setOrigin(0.5, 1).setDepth(13).setVisible(false);
+    this.promptText = scene.add
+      .text(x, y - 46, "[E] Inspect", {
+        fontSize: "8px",
+        color: "#ffdd44",
+        stroke: "#000000",
+        strokeThickness: 2,
+        resolution: 2,
+      })
+      .setOrigin(0.5, 1)
+      .setDepth(13)
+      .setVisible(false);
 
     // ── Input ─────────────────────────────────────────────────────────────────
     const kb = scene.input.keyboard!;
@@ -128,7 +103,7 @@ export default class RocketController {
       d: kb.addKey(Phaser.Input.Keyboard.KeyCodes.D),
     };
     this.inspectKey = kb.addKey(Phaser.Input.Keyboard.KeyCodes.E);
-    this.inspectKey.on('down', () => this.tryInspect());
+    this.inspectKey.on("down", () => this.tryInspect());
   }
 
   update(delta: number): void {
@@ -204,32 +179,44 @@ export default class RocketController {
     g.clear();
     if (!active) return;
 
-    const len  = 12 + Math.random() * 14;
-    const wid  = 4  + Math.random() * 3;
-    const base = BODY_H / 2;
+    const len = 18 + Math.random() * 20;
+    const wid = 6 + Math.random() * 6;
+    const base = SHIP_HEIGHT / 2;
 
     // Outer flame (orange)
     g.fillStyle(0xff6600, 0.7);
-    g.fillTriangle(-wid / 2, base,  wid / 2, base,  0, base + len);
+    g.fillTriangle(-wid / 2, base, wid / 2, base, 0, base + len);
     // Inner core (yellow-white)
     g.fillStyle(0xffee88, 0.9);
-    g.fillTriangle(-(wid / 2) * 0.5, base, (wid / 2) * 0.5, base, 0, base + len * 0.65);
+    g.fillTriangle(
+      -(wid / 2) * 0.5,
+      base,
+      (wid / 2) * 0.5,
+      base,
+      0,
+      base + len * 0.65,
+    );
   }
 
   private tryInspect(): void {
     for (const managed of this.agentManager.getAgents()) {
-      const dist = Math.hypot(managed.sprite.x - this.x, managed.sprite.y - this.y);
+      const dist = Math.hypot(
+        managed.sprite.x - this.x,
+        managed.sprite.y - this.y,
+      );
       if (dist <= INSPECT_RANGE) {
         this.agentManager.pauseAgent(managed.state.id);
-        this.scene.events.emit('AGENT_SELECTED', managed.state);
+        this.scene.events.emit("AGENT_SELECTED", managed.state);
         return;
       }
     }
   }
 
   private hasNearbyAgent(): boolean {
-    return this.agentManager.getAgents().some(m => {
-      return Math.hypot(m.sprite.x - this.x, m.sprite.y - this.y) <= INSPECT_RANGE;
+    return this.agentManager.getAgents().some((m) => {
+      return (
+        Math.hypot(m.sprite.x - this.x, m.sprite.y - this.y) <= INSPECT_RANGE
+      );
     });
   }
 }

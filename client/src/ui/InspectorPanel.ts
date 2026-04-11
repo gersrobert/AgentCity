@@ -22,6 +22,7 @@ export default class InspectorPanel {
   private cashEl: HTMLElement;
   private dismissBtn: HTMLButtonElement;
   private inspectBtn: HTMLButtonElement;
+  private explodeBtn: HTMLButtonElement;
   private resultEl: HTMLElement;
   private resultTextEl: HTMLElement;
 
@@ -33,6 +34,7 @@ export default class InspectorPanel {
     onClose: () => void,
     onInspect: (agentId: string) => void,
     onDismiss: (agentId: string) => void,
+    onExplode: (agentId: string) => void,
   ) {
     this.section = container.querySelector('#inspector-section') as HTMLElement;
     this.nameEl = container.querySelector('#inspector-name') as HTMLElement;
@@ -44,6 +46,7 @@ export default class InspectorPanel {
     this.cashEl = container.querySelector('#inspector-cash') as HTMLElement;
     this.dismissBtn = container.querySelector('#inspector-dismiss-btn') as HTMLButtonElement;
     this.inspectBtn = container.querySelector('#inspector-inspect-btn') as HTMLButtonElement;
+    this.explodeBtn = container.querySelector('#inspector-explode-btn') as HTMLButtonElement;
     this.resultEl = container.querySelector('#inspector-result') as HTMLElement;
     this.resultTextEl = container.querySelector('#inspector-result-text') as HTMLElement;
 
@@ -60,10 +63,17 @@ export default class InspectorPanel {
     this.inspectBtn.addEventListener('click', () => {
       if (!this.currentAgentId) return;
       if (this.scanned) {
-        // Act as close/dismiss after scanning
         onDismiss(this.currentAgentId);
       } else {
         onInspect(this.currentAgentId);
+      }
+    });
+
+    this.explodeBtn.addEventListener('click', () => {
+      if (this.currentAgentId) {
+        const id = this.currentAgentId;
+        this.hide();
+        onExplode(id);
       }
     });
   }
@@ -93,6 +103,7 @@ export default class InspectorPanel {
     this.dismissBtn.disabled = false;
     this.inspectBtn.disabled = false;
     this.inspectBtn.textContent = 'Scan Cargo';
+    this.explodeBtn.style.display = 'block';
 
     this.section.style.display = 'flex';
   }

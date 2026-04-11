@@ -66,6 +66,10 @@ export default class GameScene extends Phaser.Scene {
       this.agentManager.retriggerAgent(agentId);
     });
 
+    this.events.on('EXPLODE_AGENT', (agentId: string) => {
+      this.agentManager.explodeAgent(agentId);
+    });
+
     this.events.on('WORLD_EVENT', (event: WorldEvent) => {
       this.handleWorldEvent(event);
     });

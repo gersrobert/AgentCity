@@ -102,6 +102,21 @@ const RIGHT_PANEL_HTML = `
         font-family: monospace;
       ">Scan Cargo</button>
     </div>
+    <button id="inspector-explode-btn" style="
+      display: none;
+      width: 100%;
+      background: #661111;
+      color: #ffcccc;
+      border: 1px solid #ff4444;
+      border-radius: 4px;
+      padding: 6px 8px;
+      font-size: 11px;
+      font-weight: bold;
+      cursor: pointer;
+      font-family: monospace;
+      margin-bottom: 10px;
+      letter-spacing: 1px;
+    ">💥 DESTROY</button>
     <div id="inspector-result" style="display:none; margin-bottom:8px;">
       <div id="inspector-result-text" style="font-size:10px; color:#ffffcc; line-height:1.5;"></div>
     </div>
@@ -193,6 +208,7 @@ export default class UIScene extends Phaser.Scene {
       () => { this.selectedAgentId = null; },
       (agentId: string) => { this.handleInspect(agentId); },
       (agentId: string) => { this.handleDismiss(agentId); },
+      (agentId: string) => { this.handleExplode(agentId); },
     );
     this.chatPanel = new ChatPanel(this, container);
 
@@ -271,6 +287,12 @@ export default class UIScene extends Phaser.Scene {
     const pct = Math.max(0, (amount / PLAYER_STARTING_BUDGET) * 100);
     this.budgetFillEl.style.width = pct + '%';
     this.budgetFillEl.style.background = pct > 50 ? '#44aa44' : pct > 25 ? '#ffaa00' : '#ff4444';
+  }
+
+  private handleExplode(agentId: string): void {
+    this.selectedAgentId = null;
+    this._scannedIllegal = null;
+    this.scene.get('GameScene').events.emit('EXPLODE_AGENT', agentId);
   }
 
   private triggerGameOver(): void {
