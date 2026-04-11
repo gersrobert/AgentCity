@@ -26,6 +26,7 @@ export default class InspectorPanel {
   private resultTextEl: HTMLElement;
 
   private currentAgentId: string | null = null;
+  private scanned = false;
 
   constructor(
     container: HTMLElement,
@@ -57,7 +58,13 @@ export default class InspectorPanel {
     });
 
     this.inspectBtn.addEventListener('click', () => {
-      if (this.currentAgentId) onInspect(this.currentAgentId);
+      if (!this.currentAgentId) return;
+      if (this.scanned) {
+        // Act as close/dismiss after scanning
+        onDismiss(this.currentAgentId);
+      } else {
+        onInspect(this.currentAgentId);
+      }
     });
   }
 
@@ -80,6 +87,7 @@ export default class InspectorPanel {
     this.cashEl.style.display = 'none';
 
     // Reset investigation state
+    this.scanned = false;
     this.resultEl.style.display = 'none';
     this.dismissBtn.style.display = '';
     this.dismissBtn.disabled = false;
@@ -109,10 +117,11 @@ export default class InspectorPanel {
       ? `<span style="color:#ff6644;font-weight:bold;">CONTRABAND DETECTED</span><br><span style="color:#aaffaa">Cargo seized + $${budgetDelta} credits confiscated.</span>`
       : `<span style="color:#aaffaa;font-weight:bold;">Nothing illegal found.</span><br><span style="color:#ff8888">-$${Math.abs(budgetDelta)} budget (false scan).</span>`;
 
+    this.scanned = true;
     this.resultEl.style.display = 'block';
     this.dismissBtn.style.display = 'none';
-    this.inspectBtn.disabled = true;
-    this.inspectBtn.textContent = '✓ Scanned';
+    this.inspectBtn.disabled = false;
+    this.inspectBtn.textContent = '✓ Done';
   }
 
   hide(): void {
