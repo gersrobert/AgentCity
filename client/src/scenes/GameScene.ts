@@ -11,8 +11,12 @@ import {
   STAR_COUNT,
   TWINKLE_STAR_COUNT,
   NEBULA_OPACITY,
+  STARTING_PLANET_COUNT,
+  PLANET_UNLOCK_INTERVAL_MS,
+  AGENT_UNLOCK_INTERVAL_MS,
 } from '../config';
 import type { WorldEvent, AgentState } from '@shared/types';
+import { worldState, unlockPlanet, AGENT_POOL, randomCash } from '../store/worldState';
 
 export default class GameScene extends Phaser.Scene {
   private cityMap!: CityMap;
@@ -22,6 +26,10 @@ export default class GameScene extends Phaser.Scene {
   private planetImages: Phaser.GameObjects.Image[] = [];
   private planetRotSpeeds: number[] = [];
   private selectedAgentId: string | null = null;
+
+  // Progressive unlock state
+  private nextPlanetIdx = STARTING_PLANET_COUNT;
+  private nextAgentIdx  = 1;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -40,13 +48,18 @@ export default class GameScene extends Phaser.Scene {
 
     this.blackHole = new BlackHole(this, mapWidth / 2, mapHeight / 2);
 
+    // ── Planets (starting set only) ──────────────────────────────────────────
     this.cityMap = new CityMap(mapWidth, mapHeight);
-    this.createPlanets(mapWidth, mapHeight);
+    for (let i = 0; i < STARTING_PLANET_COUNT; i++) {
+      this.renderPlanet(PLANETS[i]);
+    }
 
+    // ── Agents ──────────────────────────────────────────────────────────────
     this.agentManager = new AgentManager(this, this.cityMap);
+    this.agentManager.setBlackHole(this.blackHole);
     this.agentManager.init();
 
-    // Start rocket near Aquaria
+    // ── Player rocket ────────────────────────────────────────────────────────
     const startPos = this.cityMap.getPlanetPixelPos('aquaria');
     const startR   = this.cityMap.getPlanetRadius('aquaria');
     this.rocket = new RocketController(
@@ -54,6 +67,21 @@ export default class GameScene extends Phaser.Scene {
       startPos.x - startR - 50, startPos.y,
     );
 
+    // ── Progressive unlock timers ────────────────────────────────────────────
+    this.time.addEvent({
+      delay: PLANET_UNLOCK_INTERVAL_MS,
+      callback: this.unlockNextPlanet,
+      callbackScope: this,
+      loop: true,
+    });
+    this.time.addEvent({
+      delay: AGENT_UNLOCK_INTERVAL_MS,
+      callback: this.addNextAgent,
+      callbackScope: this,
+      loop: true,
+    });
+
+    // ── Events ──────────────────────────────────────────────────────────────
     this.events.on('AGENT_SELECTED', (agent: AgentState) => {
       this.selectedAgentId = agent.id;
     });
@@ -70,8 +98,21 @@ export default class GameScene extends Phaser.Scene {
       this.agentManager.explodeAgent(agentId);
     });
 
+    this.events.on('FLEE_AGENT', (agentId: string) => {
+      this.agentManager.fleeAgent(agentId);
+    });
+
+    this.events.on('KILL_AGENT', (agentId: string) => {
+      this.agentManager.killAgent(agentId);
+    });
+
     this.events.on('WORLD_EVENT', (event: WorldEvent) => {
       this.handleWorldEvent(event);
+    });
+
+    this.events.on('BLACKHOLE_GROW', (sizeFraction: number) => {
+      this.blackHole.setSizeFraction(sizeFraction);
+      this.scene.get('UIScene').events.emit('BLACKHOLE_GROW', sizeFraction);
     });
 
     this.scene.bringToTop('UIScene');
@@ -85,6 +126,43 @@ export default class GameScene extends Phaser.Scene {
     this.blackHole.update(delta);
     this.rocket.update(delta);
     this.agentManager.update(_time, delta);
+  }
+
+  // ── Progressive unlock ────────────────────────────────────────────────────
+
+  private unlockNextPlanet(): void {
+    if (this.nextPlanetIdx >= PLANETS.length) return;
+    const planet = PLANETS[this.nextPlanetIdx++];
+    unlockPlanet(planet);
+    this.renderPlanet(planet);
+    this.showEventToast(`${planet.label} has entered the system.`);
+  }
+
+  private addNextAgent(): void {
+    if (this.nextAgentIdx >= AGENT_POOL.length) return;
+    const def = AGENT_POOL[this.nextAgentIdx++];
+    const agentState: AgentState = { ...def, cash: randomCash() };
+    worldState.agents.push(agentState);
+    this.agentManager.addAgent(agentState);
+    this.showEventToast(`${agentState.name} has arrived in the system.`);
+  }
+
+  // ── Private builders ──────────────────────────────────────────────────────
+
+  private renderPlanet(planet: PlanetData): void {
+    const { width: w, height: h } = this.cityMap.getMapDimensions();
+    const x = Math.round(planet.xRatio * w);
+    const y = Math.round(planet.yRatio * h);
+    const r = planet.radius;
+
+    this.drawPlanetGlow(x, y, r, planet.glowColor);
+    const img = this.drawPlanetImage(x, y, r, planet);
+    this.drawPlanetLabel(x, y, r, planet);
+
+    img.setInteractive(new Phaser.Geom.Circle(0, 0, r), Phaser.Geom.Circle.Contains);
+
+    this.planetImages.push(img);
+    this.planetRotSpeeds.push(planet.rotationSpeedDeg);
   }
 
   private createNebulae(w: number, h: number): void {
@@ -134,23 +212,6 @@ export default class GameScene extends Phaser.Scene {
         repeat: -1,
         delay: Math.random() * 4000,
       });
-    }
-  }
-
-  private createPlanets(w: number, h: number): void {
-    for (const planet of PLANETS) {
-      const x = Math.round(planet.xRatio * w);
-      const y = Math.round(planet.yRatio * h);
-      const r = planet.radius;
-
-      this.drawPlanetGlow(x, y, r, planet.glowColor);
-      const img = this.drawPlanetImage(x, y, r, planet);
-      this.drawPlanetLabel(x, y, r, planet);
-
-      img.setInteractive(new Phaser.Geom.Circle(0, 0, r), Phaser.Geom.Circle.Contains);
-
-      this.planetImages.push(img);
-      this.planetRotSpeeds.push(planet.rotationSpeedDeg);
     }
   }
 

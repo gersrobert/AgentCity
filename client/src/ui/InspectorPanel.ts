@@ -79,9 +79,10 @@ export default class InspectorPanel {
   }
 
   private formatInventory(agent: AgentState): string {
-    if (!agent.inventory) return 'empty hold';
-    const flag = agent.inventory.isIllegal ? ' ⚠' : '';
-    return `${agent.inventory.quantity}× ${agent.inventory.name}${flag}`;
+    if (agent.inventory.length === 0) return 'empty hold';
+    return agent.inventory
+      .map(i => `${i.quantity}× ${i.name}${i.isIllegal ? ' ⚠' : ''}`)
+      .join(', ');
   }
 
   show(agent: AgentState): void {
@@ -116,8 +117,8 @@ export default class InspectorPanel {
     }
   }
 
-  showInspectResult(agent: AgentState, budgetDelta: number): void {
-    const isIllegal = agent.inventory?.isIllegal ?? false;
+  showInspectResult(agent: AgentState, seizedCash: number): void {
+    const isIllegal = agent.inventory.some(i => i.isIllegal);
 
     // Reveal cargo & credits
     this.cashRowEl.style.display = '';
@@ -125,8 +126,8 @@ export default class InspectorPanel {
     this.cashEl.textContent = `${this.formatInventory(agent)} · $${agent.cash} credits`;
 
     this.resultTextEl.innerHTML = isIllegal
-      ? `<span style="color:#ff6644;font-weight:bold;">CONTRABAND DETECTED</span><br><span style="color:#aaffaa">Cargo seized + $${budgetDelta} credits confiscated.</span>`
-      : `<span style="color:#aaffaa;font-weight:bold;">Nothing illegal found.</span><br><span style="color:#ff8888">-$${Math.abs(budgetDelta)} budget (false scan).</span>`;
+      ? `<span style="color:#ff6644;font-weight:bold;">CONTRABAND DETECTED</span><br><span style="color:#aaffaa">Cargo seized. $${seizedCash} credits confiscated.</span>`
+      : `<span style="color:#aaffaa;font-weight:bold;">Nothing illegal found.</span><br><span style="color:#888888">Agent may continue.</span>`;
 
     this.scanned = true;
     this.resultEl.style.display = 'block';

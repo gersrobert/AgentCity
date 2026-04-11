@@ -2,8 +2,8 @@ import Phaser from 'phaser';
 import InspectorPanel from '../ui/InspectorPanel';
 import ChatPanel from '../ui/ChatPanel';
 import type { AgentState } from '@shared/types';
-import { GAME_WIDTH, GAME_HEIGHT, RIGHT_PANEL_WIDTH, PLAYER_STARTING_BUDGET, ARREST_FALSE_PENALTY } from '../config';
-import { worldState, applyBudgetChange, isGameOver } from '../store/worldState';
+import { GAME_WIDTH, GAME_HEIGHT, RIGHT_PANEL_WIDTH } from '../config';
+import { worldState, isGameOver } from '../store/worldState';
 import type { AgentDecisionTrace } from '../agents/AgentManager';
 
 const RIGHT_PANEL_HTML = `
@@ -31,18 +31,18 @@ const RIGHT_PANEL_HTML = `
     flex-shrink: 0;
   ">AgentCity</div>
 
-  <!-- Police Budget Bar -->
-  <div id="budget-bar" style="
+  <!-- Blackhole Growth Bar -->
+  <div id="blackhole-bar" style="
     padding: 8px 14px;
     background: #1a1a3e;
     border-bottom: 1px solid #6644aa;
     flex-shrink: 0;
   ">
-    <div style="font-size:9px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">Investigation Budget</div>
+    <div style="font-size:9px; color:#ff6644; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">Blackhole Growth</div>
     <div style="display:flex; align-items:center; gap:8px;">
-      <div id="budget-amount" style="font-size:14px; color:#ffdd44; font-weight:bold; min-width:48px;">$${PLAYER_STARTING_BUDGET}</div>
+      <div id="blackhole-pct" style="font-size:14px; color:#ff4422; font-weight:bold; min-width:40px;">0%</div>
       <div style="flex:1; height:6px; background:#333355; border-radius:3px; overflow:hidden;">
-        <div id="budget-fill" style="height:100%; width:100%; background:#44aa44; border-radius:3px; transition: width 0.3s, background 0.3s;"></div>
+        <div id="blackhole-fill" style="height:100%; width:0%; background:#880022; border-radius:3px; transition: width 0.4s, background 0.4s;"></div>
       </div>
     </div>
     <div style="font-size:8px; color:#555588; margin-top:4px;">← → cycle planets · E inspect agent</div>
@@ -185,8 +185,8 @@ export default class UIScene extends Phaser.Scene {
   private chatPanel!: ChatPanel;
   private selectedAgentId: string | null = null;
   private _scannedIllegal: string | null = null; // agentId that had contraband, waiting for close
-  private budgetAmountEl!: HTMLElement;
-  private budgetFillEl!: HTMLElement;
+  private blackholePctEl!: HTMLElement;
+  private blackholeFillEl!: HTMLElement;
 
   constructor() {
     super({ key: 'UIScene' });
@@ -200,8 +200,8 @@ export default class UIScene extends Phaser.Scene {
 
     const container = panelDom.node as HTMLElement;
 
-    this.budgetAmountEl = container.querySelector('#budget-amount') as HTMLElement;
-    this.budgetFillEl = container.querySelector('#budget-fill') as HTMLElement;
+    this.blackholePctEl = container.querySelector('#blackhole-pct') as HTMLElement;
+    this.blackholeFillEl = container.querySelector('#blackhole-fill') as HTMLElement;
 
     this.inspectorPanel = new InspectorPanel(
       container,
@@ -229,6 +229,13 @@ export default class UIScene extends Phaser.Scene {
       this.chatPanel.logAgentDecision(trace);
     });
 
+    this.events.on('BLACKHOLE_GROW', (sizeFraction: number) => {
+      this.updateBlackholeBar(sizeFraction);
+      if (isGameOver()) {
+        this.triggerGameOver();
+      }
+    });
+
     this.input.keyboard!.on('keydown-ESC', () => {
       if (this.selectedAgentId) {
         this.handleDismiss(this.selectedAgentId);
@@ -244,7 +251,7 @@ export default class UIScene extends Phaser.Scene {
   private handleDismiss(agentId: string): void {
     const gameScene = this.scene.get('GameScene');
     if (this._scannedIllegal === agentId) {
-      gameScene.events.emit('RETRIGGER_AGENT', agentId);
+      gameScene.events.emit('KILL_AGENT', agentId);
       this._scannedIllegal = null;
     } else {
       gameScene.events.emit('AGENT_RESUME', agentId);
@@ -257,36 +264,26 @@ export default class UIScene extends Phaser.Scene {
     const agent = worldState.agents.find(a => a.id === agentId);
     if (!agent) return;
 
-    const gameScene = this.scene.get('GameScene');
-    const isIllegal = agent.inventory?.isIllegal ?? false;
+    const hasIllegal = agent.inventory.some(i => i.isIllegal);
 
-    if (isIllegal) {
+    if (hasIllegal) {
       const seized = Math.floor(agent.cash / 2);
       this.inspectorPanel.showInspectResult(agent, seized);
-      agent.inventory = null;
+      agent.inventory = agent.inventory.filter(i => !i.isIllegal); // seize only illegal items
       agent.cash -= seized;
-      applyBudgetChange(seized);
-      this.updateBudget(worldState.playerBudget);
       // Agent waits — will be retriggered when the player closes the panel
       this._scannedIllegal = agentId;
     } else {
-      const penalty = -ARREST_FALSE_PENALTY;
-      this.inspectorPanel.showInspectResult(agent, penalty);
-      applyBudgetChange(penalty);
-      this.updateBudget(worldState.playerBudget);
+      this.inspectorPanel.showInspectResult(agent, 0);
       // Agent waits — will resume when the player closes the panel
-    }
-
-    if (isGameOver()) {
-      this.triggerGameOver();
     }
   }
 
-  private updateBudget(amount: number): void {
-    this.budgetAmountEl.textContent = '$' + amount;
-    const pct = Math.max(0, (amount / PLAYER_STARTING_BUDGET) * 100);
-    this.budgetFillEl.style.width = pct + '%';
-    this.budgetFillEl.style.background = pct > 50 ? '#44aa44' : pct > 25 ? '#ffaa00' : '#ff4444';
+  private updateBlackholeBar(sizeFraction: number): void {
+    const pct = Math.round(sizeFraction * 100);
+    this.blackholePctEl.textContent = pct + '%';
+    this.blackholeFillEl.style.width = pct + '%';
+    this.blackholeFillEl.style.background = pct < 40 ? '#880022' : pct < 70 ? '#cc2200' : '#ff1100';
   }
 
   private handleExplode(agentId: string): void {
@@ -299,14 +296,14 @@ export default class UIScene extends Phaser.Scene {
     const overlay = document.createElement('div');
     overlay.style.cssText = `
       position: fixed; inset: 0;
-      background: rgba(0,0,0,0.88);
+      background: rgba(0,0,0,0.92);
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
       font-family: monospace; color: white; z-index: 9999;
     `;
     overlay.innerHTML = `
-      <div style="font-size:32px; color:#ff4444; margin-bottom:16px;">BUDGET DEPLETED</div>
-      <div style="font-size:14px; color:#aaaaaa; margin-bottom:24px;">The investigation has been defunded.</div>
+      <div style="font-size:32px; color:#ff2200; margin-bottom:16px;">THE VOID HAS WON</div>
+      <div style="font-size:14px; color:#aaaaaa; margin-bottom:24px;">The blackhole has consumed everything.</div>
       <button onclick="location.reload()" style="
         background:#6644aa; color:#fff; border:none;
         border-radius:6px; padding:10px 24px; font-size:14px;

@@ -33,7 +33,12 @@ export const TRACE_AGENT_DECISIONS = true;
 // Press E when on same planet as an agent to inspect them
 export const PLAYER_INSPECT_RADIUS_SAME_PLANET = true;
 
-// ─── Game economy ─────────────────────────────────────────────────────────────
-export const PLAYER_STARTING_BUDGET = 500;
-export const ARREST_CORRECT_REWARD = 200;
-export const ARREST_FALSE_PENALTY = 150;
+// ─── Blackhole ────────────────────────────────────────────────────────────────
+// Each illegal item delivery grows the blackhole by this fraction of max size.
+// 10 deliveries to fill = 0.1 per delivery.
+export const BLACKHOLE_GROWTH_PER_DELIVERY = 0.1;
+
+// ─── Progressive unlock ───────────────────────────────────────────────────────
+export const STARTING_PLANET_COUNT = 2;   // planets active at game start
+export const PLANET_UNLOCK_INTERVAL_MS = 60_000;  // new planet every 60 s
+export const AGENT_UNLOCK_INTERVAL_MS  = 30_000;  // new agent every 30 s

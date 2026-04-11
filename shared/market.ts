@@ -2,6 +2,10 @@
 // Each planet has items it sells (agents can buy) and items it accepts from agents.
 // No item appears in both lists for the same planet.
 
+// Agents won't buy illegal goods if their remaining cash would fall below this.
+// Ensures they keep enough credits to continue legal trading afterwards.
+export const ILLEGAL_CASH_RESERVE = 50;
+
 export interface MarketListing {
   itemName: string;
   price: number;
@@ -17,113 +21,122 @@ export const MARKET: Record<string, LocationMarket> = {
   aquaria: {
     sells: [
       { itemName: 'tidal crystals',    price: 18, isIllegal: false },
+      { itemName: 'contraband spores', price: 160, isIllegal: true },
     ],
     buys: [
       { itemName: 'star spice',        price: 28, isIllegal: false },
       { itemName: 'void dust',         price: 22, isIllegal: false },
-      { itemName: 'dark matter',       price: 140, isIllegal: true },
     ],
   },
 
   ember: {
     sells: [
       { itemName: 'magma ore',         price: 14, isIllegal: false },
+      { itemName: 'contraband spores', price: 160, isIllegal: true },
     ],
     buys: [
       { itemName: 'tidal crystals',    price: 26, isIllegal: false },
       { itemName: 'nebula silk',       price: 32, isIllegal: false },
-      { itemName: 'stolen relics',     price: 90, isIllegal: true },
     ],
   },
 
   verdant: {
     sells: [
       { itemName: 'star spice',        price: 12, isIllegal: false },
+      { itemName: 'stolen relics',     price: 120, isIllegal: true },
     ],
     buys: [
       { itemName: 'magma ore',         price: 22, isIllegal: false },
       { itemName: 'void dust',         price: 18, isIllegal: false },
-      { itemName: 'dark matter',       price: 120, isIllegal: true },
     ],
   },
 
   dune: {
     sells: [
       { itemName: 'void dust',         price: 10, isIllegal: false },
-      { itemName: 'contraband spores', price: 22, isIllegal: true },
+      { itemName: 'contraband spores', price: 160, isIllegal: true },
     ],
     buys: [
       { itemName: 'tidal crystals',    price: 30, isIllegal: false },
       { itemName: 'magma ore',         price: 20, isIllegal: false },
-      { itemName: 'stolen relics',     price: 80, isIllegal: true },
     ],
   },
 
   nebula: {
     sells: [
       { itemName: 'nebula silk',       price: 20, isIllegal: false },
+      { itemName: 'stolen relics',     price: 120, isIllegal: true },
     ],
     buys: [
       { itemName: 'star spice',        price: 22, isIllegal: false },
       { itemName: 'void dust',         price: 25, isIllegal: false },
-      { itemName: 'contraband spores', price: 100, isIllegal: true },
     ],
   },
 
   frost: {
     sells: [
       { itemName: 'cryo shards',       price: 16, isIllegal: false },
+      { itemName: 'dark matter',       price: 190, isIllegal: true },
     ],
     buys: [
       { itemName: 'magma ore',         price: 28, isIllegal: false },
       { itemName: 'nebula silk',       price: 34, isIllegal: false },
-      { itemName: 'dark matter',       price: 130, isIllegal: true },
     ],
   },
 
   terracis: {
     sells: [
       { itemName: 'clay tablets',      price: 11, isIllegal: false },
+      { itemName: 'dark matter',       price: 190, isIllegal: true },
     ],
     buys: [
       { itemName: 'cryo shards',       price: 24, isIllegal: false },
       { itemName: 'tidal crystals',    price: 22, isIllegal: false },
-      { itemName: 'stolen relics',     price: 95, isIllegal: true },
     ],
   },
 
   aether: {
     sells: [
       { itemName: 'calm essence',      price: 25, isIllegal: false },
+      { itemName: 'contraband spores', price: 160, isIllegal: true },
     ],
     buys: [
       { itemName: 'clay tablets',      price: 20, isIllegal: false },
       { itemName: 'star spice',        price: 30, isIllegal: false },
-      { itemName: 'contraband spores', price: 110, isIllegal: true },
     ],
   },
 
   reverie: {
     sells: [
       { itemName: 'dream pollen',      price: 14, isIllegal: false },
-      { itemName: 'stolen relics',     price: 18, isIllegal: true },
+      { itemName: 'stolen relics',     price: 120, isIllegal: true },
     ],
     buys: [
       { itemName: 'calm essence',      price: 38, isIllegal: false },
       { itemName: 'cryo shards',       price: 28, isIllegal: false },
-      { itemName: 'dark matter',       price: 150, isIllegal: true },
     ],
   },
 
   granite: {
     sells: [
       { itemName: 'ancient stone',     price: 13, isIllegal: false },
+      { itemName: 'dark matter',       price: 190, isIllegal: true },
     ],
     buys: [
       { itemName: 'dream pollen',      price: 25, isIllegal: false },
       { itemName: 'nebula silk',       price: 38, isIllegal: false },
       { itemName: 'void dust',         price: 20, isIllegal: false },
-      { itemName: 'contraband spores', price: 120, isIllegal: true },
+    ],
+  },
+
+  // The blackhole accepts illegal deliveries — agents deliver here for no money,
+  // but each delivery grows the blackhole. It sells nothing.
+  blackhole: {
+    sells: [],
+    buys: [
+      { itemName: 'dark matter',       price: 0, isIllegal: true },
+      { itemName: 'stolen relics',     price: 0, isIllegal: true },
+      { itemName: 'contraband spores', price: 0, isIllegal: true },
     ],
   },
 };

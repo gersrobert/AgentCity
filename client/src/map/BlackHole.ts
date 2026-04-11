@@ -4,11 +4,8 @@ import Phaser from 'phaser';
 // All geometry is drawn at BASE_RADIUS = 100 (event horizon).
 // A Phaser Container is scaled to make it larger/smaller.
 const BASE_RADIUS = 100;
-const START_SCALE = 0.06;  // event horizon starts at 6 px radius (tiny)
-const END_SCALE   = 3.00;  // event horizon ends  at 300 px radius
-
-// How long (ms) to grow from start to full size — low for testing
-const GROWTH_DURATION_MS = 15_000;
+const MIN_SCALE = 0.06;   // event horizon starts at 6 px radius
+const MAX_SCALE = 1.50;   // event horizon at full size = 150 px radius
 
 // ─── Breathing ────────────────────────────────────────────────────────────────
 const BREATHE_AMOUNT = 0.04;   // ±4 % of current scale
@@ -20,6 +17,8 @@ export default class BlackHole {
 
   private container: Phaser.GameObjects.Container;
   private elapsed = 0;
+  // 0–1 fraction of maximum size, driven by agent deliveries
+  private sizeFraction = 0;
 
   constructor(scene: Phaser.Scene, x: number, y: number) {
     this.x = x;
@@ -44,7 +43,6 @@ export default class BlackHole {
     coreGfx.fillCircle(0, 0, BASE_RADIUS);
 
     // ── Layer 4: photon ring — thin bright ring just above the horizon ───
-    // Sits in front of the black circle, pulses rapidly
     const ringGfx = scene.add.graphics();
     ringGfx.lineStyle(2.5, 0xffcc44, 0.85);
     ringGfx.strokeCircle(0, 0, BASE_RADIUS + 5);
@@ -54,7 +52,7 @@ export default class BlackHole {
     // ── Container groups all layers ──────────────────────────────────────
     this.container = scene.add.container(x, y, [glowGfx, coronaGfx, coreGfx, ringGfx]);
     this.container.setDepth(6);
-    this.container.setScale(START_SCALE);
+    this.container.setScale(MIN_SCALE);
 
     // Corona pulse — gently brightens and dims
     scene.tweens.add({
@@ -88,12 +86,15 @@ export default class BlackHole {
     });
   }
 
-  update(delta: number): void {
-    this.elapsed = Math.min(this.elapsed + delta, GROWTH_DURATION_MS);
+  /** Called when an agent delivers an illegal item. fraction is 0–1 total size. */
+  setSizeFraction(fraction: number): void {
+    this.sizeFraction = Math.min(1, Math.max(0, fraction));
+  }
 
-    const t = this.elapsed / GROWTH_DURATION_MS;
-    // Ease-in: starts slow, accelerates toward the end
-    const growthScale = START_SCALE + (END_SCALE - START_SCALE) * (t * t);
+  update(delta: number): void {
+    this.elapsed += delta;
+
+    const growthScale = MIN_SCALE + (MAX_SCALE - MIN_SCALE) * this.sizeFraction;
 
     // Breathing sine on top of growth
     const breathe = 1 + Math.sin((this.elapsed / BREATHE_PERIOD) * Math.PI * 2) * BREATHE_AMOUNT;
@@ -101,7 +102,7 @@ export default class BlackHole {
     this.container.setScale(growthScale * breathe);
   }
 
-  /** Radius of the event horizon in world pixels — for swallow logic later */
+  /** Radius of the event horizon in world pixels */
   getRadius(): number {
     return BASE_RADIUS * this.container.scaleX;
   }

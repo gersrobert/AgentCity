@@ -46,6 +46,10 @@ export default class AgentSprite {
   // Trail
   private trailPoints: { x: number; y: number }[] = [];
 
+  // Screen bounds (set by AgentManager after creation)
+  private boundsW = Infinity;
+  private boundsH = Infinity;
+
   constructor(
     scene: Phaser.Scene,
     agentState: AgentState,
@@ -123,8 +127,8 @@ export default class AgentSprite {
   updateOrbit(delta: number): void {
     if (this.traveling || this.frozen) return;
     this.orbitAngle += this.orbitSpeed * delta;
-    this.x = this.planetX + Math.cos(this.orbitAngle) * this.orbitRadius;
-    this.y = this.planetY + Math.sin(this.orbitAngle) * this.orbitRadius;
+    this.x = Math.max(0, Math.min(this.boundsW, this.planetX + Math.cos(this.orbitAngle) * this.orbitRadius));
+    this.y = Math.max(0, Math.min(this.boundsH, this.planetY + Math.sin(this.orbitAngle) * this.orbitRadius));
     this.syncVisuals();
   }
 
@@ -175,9 +179,14 @@ export default class AgentSprite {
     }
   }
 
+  setBounds(w: number, h: number): void {
+    this.boundsW = w;
+    this.boundsH = h;
+  }
+
   setPosition(x: number, y: number): void {
-    this.x = x;
-    this.y = y;
+    this.x = Math.max(0, Math.min(this.boundsW, x));
+    this.y = Math.max(0, Math.min(this.boundsH, y));
     this.syncVisuals();
   }
 

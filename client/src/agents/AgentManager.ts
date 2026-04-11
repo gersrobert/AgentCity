@@ -1,16 +1,18 @@
 import Phaser from 'phaser';
 import type { AgentState, AgentThinkRequest } from '@shared/types';
-import { worldState } from '../store/worldState';
+import { worldState, growBlackhole } from '../store/worldState';
 import AgentSprite from './AgentSprite';
 import MovementController from './MovementController';
 import CityMap from '../map/CityMap';
+import BlackHole from '../map/BlackHole';
 import * as backendClient from '../api/backendClient';
 import {
   AGENT_DECISION_INTERVAL_MS,
   AGENT_DECISION_STAGGER_MS,
   TRACE_AGENT_DECISIONS,
+  BLACKHOLE_GROWTH_PER_DELIVERY,
 } from '../config';
-import { getBuyListing, getSellListings } from '@shared/market';
+import { getBuyListing, getSellListings, ILLEGAL_CASH_RESERVE } from '@shared/market';
 
 export interface AgentDecisionTrace {
   agentName: string;
@@ -39,18 +41,25 @@ export default class AgentManager {
   private scene: Phaser.Scene;
   private map: CityMap;
   private agents: ManagedAgent[] = [];
+  private blackHole: BlackHole | null = null;
 
   constructor(scene: Phaser.Scene, map: CityMap) {
     this.scene = scene;
     this.map = map;
   }
 
+  setBlackHole(bh: BlackHole): void {
+    this.blackHole = bh;
+  }
+
   init(): void {
+    const { width: mapW, height: mapH } = this.map.getMapDimensions();
     worldState.agents.forEach((agentState, i) => {
       const pos = this.map.getPlanetPixelPos(agentState.currentPlanetId);
       const radius = this.map.getPlanetRadius(agentState.currentPlanetId);
 
       const sprite = new AgentSprite(this.scene, agentState, pos.x, pos.y, radius, i);
+      sprite.setBounds(mapW, mapH);
       const movement = new MovementController(this.scene);
 
       sprite.getGraphics().on('pointerdown', () => {
@@ -75,6 +84,15 @@ export default class AgentManager {
     for (const managed of this.agents) {
       if (managed.paused) continue;
 
+      // Keep orbit radius in sync with the live blackhole size
+      if (
+        this.blackHole &&
+        managed.state.currentPlanetId === 'blackhole' &&
+        !managed.movement.isMoving()
+      ) {
+        managed.sprite.orbitRadius = this.blackHole.getRadius() + 22;
+      }
+
       // Advance orbital motion every frame (skip while traveling or paused)
       managed.sprite.updateOrbit(delta);
 
@@ -91,10 +109,12 @@ export default class AgentManager {
     }
   }
 
-  private async triggerDecision(managed: ManagedAgent, atPlanet = false): Promise<void> {
+  private async triggerDecision(managed: ManagedAgent): Promise<void> {
     const { state, sprite, movement } = managed;
     state.pendingDecision = true;
     state.lastDecisionAt = Date.now();
+    // Agent is at their current planet — execute trades
+    const atPlanet = true;
 
     try {
       const request: AgentThinkRequest = {
@@ -104,7 +124,7 @@ export default class AgentManager {
           weather: worldState.weather,
           timeOfDay: worldState.timeOfDay,
           activeEvents: worldState.activeEvents,
-          playerBudget: worldState.playerBudget,
+          blackholeSize: worldState.blackholeSize,
         },
         // All other agents are visible from space
         nearbyAgents: worldState.agents
@@ -126,7 +146,7 @@ export default class AgentManager {
 
       // Update visuals
       sprite.updateMoodColor(state.mood);
-      sprite.showThoughtBubble(decision.thought, state.inventory?.isIllegal ?? false);
+      sprite.showThoughtBubble(decision.thought, state.inventory.some(i => i.isIllegal));
       this.scene.events.emit('AGENT_UPDATED', state);
 
       // Emit decision trace for the GM log
@@ -143,9 +163,16 @@ export default class AgentManager {
 
       // Travel to target planet
       const targetPos = this.map.getPlanetPixelPos(decision.targetLocationId);
-      const targetRadius = this.map.getPlanetRadius(decision.targetLocationId);
+      const targetRadius = decision.targetLocationId === 'blackhole' && this.blackHole
+        ? this.blackHole.getRadius()
+        : this.map.getPlanetRadius(decision.targetLocationId);
 
       const { width: mapW, height: mapH } = this.map.getMapDimensions();
+      // Add the blackhole as an obstacle for inter-planet travel so agents route around it
+      const bhObstacle = decision.targetLocationId !== 'blackhole' && this.blackHole
+        ? [{ x: mapW / 2, y: mapH / 2, radius: this.blackHole.getRadius() }]
+        : [];
+
       const onArrival = () => {
         state.currentPlanetId = decision.targetLocationId;
         state.position = {
@@ -156,7 +183,7 @@ export default class AgentManager {
         state.lastDecisionAt = Date.now() - AGENT_DECISION_INTERVAL_MS; // decide soon after landing
       };
       managed.activeTrip = { toX: targetPos.x, toY: targetPos.y, toRadius: targetRadius, onArrival };
-      movement.travelTo(sprite, targetPos.x, targetPos.y, targetRadius, onArrival, this.map.getAllPlanets(), mapW, mapH);
+      movement.travelTo(sprite, targetPos.x, targetPos.y, targetRadius, onArrival, this.map.getAllPlanets(), mapW, mapH, bhObstacle);
     } catch (err) {
       console.warn(`[AgentManager] Decision failed for ${state.name}:`, err);
       state.lastDecisionAt = Date.now();
@@ -165,25 +192,45 @@ export default class AgentManager {
     }
   }
 
-  /** Sell current inventory if the current planet buys it. */
+  /** Sell any inventory items the current planet buys.
+   *  At the blackhole, illegal items are delivered (no cash, triggers growth). */
   private executeSell(managed: ManagedAgent, planetId: string): AgentDecisionTrace['sold'] {
     const { state } = managed;
-    if (!state.inventory) return null;
+    if (state.inventory.length === 0) return null;
 
-    const listing = getBuyListing(planetId, state.inventory.name);
-    if (!listing) return null;
+    let totalProfit = 0;
+    let totalQty = 0;
+    const soldNames: string[] = [];
+    const remaining: typeof state.inventory = [];
 
-    const revenue = listing.price * state.inventory.quantity;
-    const cost = state.inventory.buyPrice * state.inventory.quantity;
-    const profit = revenue - cost;
+    for (const item of state.inventory) {
+      const listing = getBuyListing(planetId, item.name);
+      if (!listing) { remaining.push(item); continue; }
 
-    state.cash += revenue;
-    const result = { goods: state.inventory.name, quantity: state.inventory.quantity, profit };
-    state.inventory = null;
-    return result;
+      if (planetId === 'blackhole' && listing.isIllegal) {
+        // Deliver to blackhole — no cash, grows it
+        growBlackhole(BLACKHOLE_GROWTH_PER_DELIVERY * item.quantity);
+        this.scene.events.emit('BLACKHOLE_GROW', worldState.blackholeSize);
+        soldNames.push(item.name);
+        totalQty += item.quantity;
+        totalProfit -= item.buyPrice * item.quantity; // spent this, got nothing
+      } else {
+        const revenue = listing.price * item.quantity;
+        const cost = item.buyPrice * item.quantity;
+        totalProfit += revenue - cost;
+        totalQty += item.quantity;
+        soldNames.push(item.name);
+        state.cash += revenue;
+      }
+    }
+
+    state.inventory = remaining;
+    if (soldNames.length === 0) return null;
+    return { goods: soldNames.join(' + '), quantity: totalQty, profit: totalProfit };
   }
 
-  /** Buy goods per Claude's decision. */
+  /** Buy goods per Claude's decision.
+   *  Legal items: unlimited slots. Illegal items: only if carrying none already. */
   private executeBuy(
     managed: ManagedAgent,
     planetId: string,
@@ -191,22 +238,25 @@ export default class AgentManager {
   ): AgentDecisionTrace['bought'] {
     const { state } = managed;
     if (!purchase || purchase.itemName === 'none') return null;
-    if (state.inventory) return null;
 
     const listing = getSellListings(planetId).find(l => l.itemName === purchase.itemName);
     if (!listing) return null;
 
-    const qty = Math.min(Math.max(1, purchase.quantity), 5);
+    // Illegal: only one at a time
+    if (listing.isIllegal && state.inventory.some(i => i.isIllegal)) return null;
+
+    const qty = listing.isIllegal ? 1 : Math.min(Math.max(1, purchase.quantity), 5);
     const totalCost = listing.price * qty;
-    if (state.cash < totalCost) return null;
+    const minCashRequired = listing.isIllegal ? totalCost + ILLEGAL_CASH_RESERVE : totalCost;
+    if (state.cash < minCashRequired) return null;
 
     state.cash -= totalCost;
-    state.inventory = {
+    state.inventory.push({
       name: listing.itemName,
       quantity: qty,
       isIllegal: listing.isIllegal,
       buyPrice: listing.price,
-    };
+    });
 
     return { goods: listing.itemName, quantity: qty, cost: totalCost };
   }
@@ -229,7 +279,10 @@ export default class AgentManager {
     if (m.movement.isMoving() && m.activeTrip) {
       const { toX, toY, toRadius, onArrival } = m.activeTrip;
       const { width: mapW, height: mapH } = this.map.getMapDimensions();
-      m.movement.pauseMidFlight(toX, toY, toRadius, onArrival, this.map.getAllPlanets(), mapW, mapH);
+      const bhObstacle = this.blackHole && m.state.targetLocationId !== 'blackhole'
+        ? [{ x: mapW / 2, y: mapH / 2, radius: this.blackHole.getRadius() }]
+        : [];
+      m.movement.pauseMidFlight(toX, toY, toRadius, onArrival, this.map.getAllPlanets(), mapW, mapH, bhObstacle);
     } else {
       m.movement.stop();
     }
@@ -247,6 +300,52 @@ export default class AgentManager {
     }
   }
 
+  /** Spawn a new agent into the live game, assigned to a random active planet. */
+  addAgent(agentState: AgentState): void {
+    const { width: mapW, height: mapH } = this.map.getMapDimensions();
+
+    // Pick a random currently-active non-blackhole planet
+    const activePlanets = worldState.locations.filter(l => l.id !== 'blackhole');
+    const startLoc = activePlanets[Math.floor(Math.random() * activePlanets.length)];
+    agentState.currentPlanetId = startLoc.id;
+    agentState.targetLocationId = startLoc.id;
+    agentState.position = startLoc.tile;
+    agentState.lastDecisionAt = Date.now() - AGENT_DECISION_INTERVAL_MS;
+
+    const pos = this.map.getPlanetPixelPos(startLoc.id);
+    const radius = this.map.getPlanetRadius(startLoc.id);
+    const idx = this.agents.length;
+
+    const sprite = new AgentSprite(this.scene, agentState, pos.x, pos.y, radius, idx);
+    sprite.setBounds(mapW, mapH);
+
+    sprite.getGraphics().on('pointerdown', () => {
+      this.scene.events.emit('AGENT_SELECTED', agentState);
+    });
+    sprite.getGraphics().on('pointerover', () => {
+      this.scene.input.setDefaultCursor('pointer');
+    });
+    sprite.getGraphics().on('pointerout', () => {
+      this.scene.input.setDefaultCursor('default');
+    });
+
+    const movement = new MovementController(this.scene);
+    this.agents.push({ state: agentState, sprite, movement, paused: false, activeTrip: null });
+  }
+
+  /** Remove an agent from the game entirely (sprite destroyed, no longer updated). */
+  killAgent(agentId: string): void {
+    const idx = this.agents.findIndex(a => a.state.id === agentId);
+    if (idx === -1) return;
+    const m = this.agents[idx];
+    m.movement.stop();
+    m.sprite.destroy();
+    this.agents.splice(idx, 1);
+    // Also remove from worldState so Claude doesn't see them
+    const wsIdx = worldState.agents.findIndex(a => a.id === agentId);
+    if (wsIdx !== -1) worldState.agents.splice(wsIdx, 1);
+  }
+
   retriggerAgent(agentId: string): void {
     const m = this.agents.find(a => a.state.id === agentId);
     if (!m) return;
@@ -254,6 +353,64 @@ export default class AgentManager {
     m.movement.stop();
     m.state.pendingDecision = false;
     m.state.lastDecisionAt = 0;
+  }
+
+  /** Immediately flee to the planet farthest from the blackhole (visible direction change). */
+  fleeAgent(agentId: string): void {
+    const m = this.agents.find(a => a.state.id === agentId);
+    if (!m) return;
+
+    m.paused = false;
+    m.sprite.frozen = false;
+    m.movement.stop();
+    m.state.pendingDecision = false;
+
+    // Pick the planet farthest from map center (farthest from blackhole),
+    // excluding the current planet.
+    const { width: mapW, height: mapH } = this.map.getMapDimensions();
+    const cx = mapW / 2;
+    const cy = mapH / 2;
+    const candidates = this.map.getAllPlanets().filter(p => p.id !== m.state.currentPlanetId);
+    const target = candidates.reduce((best, p) => {
+      const px = p.xRatio * mapW;
+      const py = p.yRatio * mapH;
+      const d = Math.hypot(px - cx, py - cy);
+      const bx = best.xRatio * mapW;
+      const by = best.yRatio * mapH;
+      const bd = Math.hypot(bx - cx, by - cy);
+      return d > bd ? p : best;
+    }, candidates[0]);
+
+    if (!target) {
+      // Fallback: just retrigger
+      m.state.lastDecisionAt = 0;
+      return;
+    }
+
+    m.state.mood = 'anxious';
+    m.state.currentGoal = 'Getting out of here fast';
+    m.state.currentThought = 'Nothing to see here, just passing through…';
+    m.state.targetLocationId = target.id;
+    m.sprite.updateMoodColor('anxious');
+    m.sprite.showThoughtBubble('Nothing to see here, just passing through…', false);
+    this.scene.events.emit('AGENT_UPDATED', m.state);
+
+    const targetPos = this.map.getPlanetPixelPos(target.id);
+    const targetRadius = this.map.getPlanetRadius(target.id);
+    const onArrival = () => {
+      m.state.currentPlanetId = target.id;
+      m.state.position = {
+        tileX: Math.round(targetPos.x / 32),
+        tileY: Math.round(targetPos.y / 32),
+      };
+      m.activeTrip = null;
+      m.state.lastDecisionAt = Date.now() - AGENT_DECISION_INTERVAL_MS;
+    };
+    const bhObstacle = this.blackHole
+      ? [{ x: mapW / 2, y: mapH / 2, radius: this.blackHole.getRadius() }]
+      : [];
+    m.activeTrip = { toX: targetPos.x, toY: targetPos.y, toRadius: targetRadius, onArrival };
+    m.movement.travelTo(m.sprite, targetPos.x, targetPos.y, targetRadius, onArrival, this.map.getAllPlanets(), mapW, mapH, bhObstacle);
   }
 
   getAgents(): ManagedAgent[] {
