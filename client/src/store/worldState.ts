@@ -1,5 +1,10 @@
 import type { WorldState, AgentState } from '@shared/types';
 import { PLANETS } from '../map/mapData';
+import { PLAYER_STARTING_BUDGET } from '../config';
+
+function randomCash(): number {
+  return Math.floor(Math.random() * 401) + 100;
+}
 
 const initialAgents: AgentState[] = [
   {
@@ -15,6 +20,8 @@ const initialAgents: AgentState[] = [
     targetLocationId: 'aquaria',
     lastDecisionAt: 0,
     pendingDecision: false,
+    cash: randomCash(),
+    inventory: null,
   },
   {
     id: 'agent_1',
@@ -29,6 +36,8 @@ const initialAgents: AgentState[] = [
     targetLocationId: 'ember',
     lastDecisionAt: 0,
     pendingDecision: false,
+    cash: randomCash(),
+    inventory: null,
   },
   {
     id: 'agent_2',
@@ -43,6 +52,8 @@ const initialAgents: AgentState[] = [
     targetLocationId: 'verdant',
     lastDecisionAt: 0,
     pendingDecision: false,
+    cash: randomCash(),
+    inventory: null,
   },
   {
     id: 'agent_3',
@@ -57,6 +68,8 @@ const initialAgents: AgentState[] = [
     targetLocationId: 'dune',
     lastDecisionAt: 0,
     pendingDecision: false,
+    cash: randomCash(),
+    inventory: null,
   },
 ];
 
@@ -71,8 +84,17 @@ export const worldState: WorldState = {
   timeOfDay: 'eternal night',
   activeEvents: [],
   agents: initialAgents,
+  playerBudget: PLAYER_STARTING_BUDGET,
 };
 
 export function getAgentById(id: string): AgentState | undefined {
   return worldState.agents.find((a) => a.id === id);
+}
+
+export function applyBudgetChange(delta: number): void {
+  worldState.playerBudget = Math.max(0, worldState.playerBudget + delta);
+}
+
+export function isGameOver(): boolean {
+  return worldState.playerBudget <= 0;
 }

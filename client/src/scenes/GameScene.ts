@@ -1,7 +1,9 @@
 import Phaser from 'phaser';
 import CityMap from '../map/CityMap';
 import AgentManager from '../agents/AgentManager';
+import PlayerController from '../player/PlayerController';
 import RocketController from '../player/RocketController';
+import BlackHole from '../map/BlackHole';
 import { PLANETS, PlanetData } from '../map/mapData';
 import {
   GAME_WIDTH,
@@ -16,7 +18,9 @@ import type { WorldEvent, AgentState } from '@shared/types';
 export default class GameScene extends Phaser.Scene {
   private cityMap!: CityMap;
   private agentManager!: AgentManager;
+  private player!: PlayerController;
   private rocket!: RocketController;
+  private blackHole!: BlackHole;
   private planetImages: Phaser.GameObjects.Image[] = [];
   private planetRotSpeeds: number[] = [];
   private selectedAgentId: string | null = null;
@@ -29,29 +33,34 @@ export default class GameScene extends Phaser.Scene {
     const mapWidth = GAME_WIDTH - RIGHT_PANEL_WIDTH;
     const mapHeight = GAME_HEIGHT;
 
-    // Camera viewport = left portion of canvas (excludes right panel)
     this.cameras.main.setViewport(0, 0, mapWidth, mapHeight);
     this.cameras.main.setZoom(1);
     this.cameras.main.setBackgroundColor('#000510');
 
-    // ── Background layers ───────────────────────────────────────────────────
     this.createNebulae(mapWidth, mapHeight);
     this.createStarField(mapWidth, mapHeight);
 
-    // ── Planets ─────────────────────────────────────────────────────────────
+    this.blackHole = new BlackHole(this, mapWidth / 2, mapHeight / 2);
+
     this.cityMap = new CityMap(mapWidth, mapHeight);
     this.createPlanets(mapWidth, mapHeight);
 
-    // ── Agents ──────────────────────────────────────────────────────────────
     this.agentManager = new AgentManager(this, this.cityMap);
     this.agentManager.init();
 
-    // ── Player rocket ────────────────────────────────────────────────────────
+    this.player = new PlayerController(this, this.cityMap, this.agentManager, 'aquaria');
     this.rocket = new RocketController(this, mapWidth / 2, mapHeight / 2, mapWidth, mapHeight);
 
-    // ── Events ──────────────────────────────────────────────────────────────
     this.events.on('AGENT_SELECTED', (agent: AgentState) => {
       this.selectedAgentId = agent.id;
+    });
+
+    this.events.on('AGENT_RESUME', (agentId: string) => {
+      this.agentManager.resumeAgent(agentId);
+    });
+
+    this.events.on('RETRIGGER_AGENT', (agentId: string) => {
+      this.agentManager.retriggerAgent(agentId);
     });
 
     this.events.on('WORLD_EVENT', (event: WorldEvent) => {
@@ -62,21 +71,19 @@ export default class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
-    // Rotate planets
     for (let i = 0; i < this.planetImages.length; i++) {
       this.planetImages[i].angle += this.planetRotSpeeds[i] * (delta / 1000);
     }
 
+    this.blackHole.update(delta);
     this.rocket.update(delta);
     this.agentManager.update(_time, delta);
+    this.player.update(delta);
   }
-
-  // ── Private builders ──────────────────────────────────────────────────────
 
   private createNebulae(w: number, h: number): void {
     const g = this.add.graphics().setDepth(0);
 
-    // A few large, very faint colour blobs to suggest distant nebulae
     const blobs = [
       { x: w * 0.25, y: h * 0.15, rx: 380, ry: 240, color: 0x220055 },
       { x: w * 0.75, y: h * 0.80, rx: 420, ry: 280, color: 0x001144 },
@@ -93,7 +100,6 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private createStarField(w: number, h: number): void {
-    // Static stars — drawn once onto a single Graphics object
     const staticGfx = this.add.graphics().setDepth(1);
     for (let i = 0; i < STAR_COUNT; i++) {
       const x = Math.random() * w;
@@ -104,7 +110,6 @@ export default class GameScene extends Phaser.Scene {
       staticGfx.fillCircle(x, y, size);
     }
 
-    // Twinkling stars — individual Graphics objects with alpha tweens
     for (let i = 0; i < TWINKLE_STAR_COUNT; i++) {
       const x = Math.random() * w;
       const y = Math.random() * h;
@@ -136,7 +141,6 @@ export default class GameScene extends Phaser.Scene {
       const img = this.drawPlanetImage(x, y, r, planet);
       this.drawPlanetLabel(x, y, r, planet);
 
-      // Planet is clickable to show info in chat (future)
       img.setInteractive(new Phaser.Geom.Circle(0, 0, r), Phaser.Geom.Circle.Contains);
 
       this.planetImages.push(img);
@@ -147,7 +151,6 @@ export default class GameScene extends Phaser.Scene {
   private drawPlanetGlow(x: number, y: number, r: number, color: number): void {
     const g = this.add.graphics().setDepth(2);
 
-    // Layered soft glow rings
     g.fillStyle(color, 0.04);
     g.fillCircle(x, y, r * 2.6);
     g.fillStyle(color, 0.08);
@@ -158,17 +161,11 @@ export default class GameScene extends Phaser.Scene {
     g.fillCircle(x, y, r * 1.15);
   }
 
-  private drawPlanetImage(
-    x: number,
-    y: number,
-    r: number,
-    planet: PlanetData,
-  ): Phaser.GameObjects.Image {
+  private drawPlanetImage(x: number, y: number, r: number, planet: PlanetData): Phaser.GameObjects.Image {
     const img = this.add.image(x, y, planet.assetKey);
     img.setDisplaySize(r * 2, r * 2);
     img.setDepth(3);
 
-    // Circular mask hides the white background baked into the PNG
     const maskGfx = this.make.graphics({});
     maskGfx.fillStyle(0xffffff);
     maskGfx.fillCircle(x, y, r - 1);
