@@ -2,13 +2,12 @@ import Phaser from 'phaser';
 import CityMap from '../map/CityMap';
 import AgentManager from '../agents/AgentManager';
 
-// The player is a special glowing orb (white/blue) that orbits planets.
-// LEFT/RIGHT arrow keys (or A/D) cycle to the prev/next planet.
-// E key inspects an agent on the same planet.
+// The player is a freely-flying glowing orb controlled with WASD / arrow keys.
+// E key inspects a nearby agent (within INSPECT_RANGE px).
 
 const PLAYER_COLOR = 0xffffff;
-const PLAYER_ORBIT_SPEED = 0.0012; // rad/ms — faster than agents so player feels responsive
-const ORBIT_OFFSET = 18;           // px extra beyond planet radius (slightly inside agent orbit)
+const MOVE_SPEED   = 220;          // px/s
+const INSPECT_RANGE = 80;          // px from player centre to agent centre
 
 export default class PlayerController {
   // Current position (world px)
@@ -19,14 +18,6 @@ export default class PlayerController {
   private map: CityMap;
   private agentManager: AgentManager;
 
-  // Orbit state
-  private currentPlanetId: string;
-  private planetX = 0;
-  private planetY = 0;
-  private orbitRadius = 0;
-  private orbitAngle = 0;
-  private traveling = false;
-
   // Visuals
   private orbGfx: Phaser.GameObjects.Graphics;
   private labelText: Phaser.GameObjects.Text;
@@ -35,31 +26,29 @@ export default class PlayerController {
   private trailPoints: { x: number; y: number }[] = [];
 
   // Input
-  private keys!: {
-    left: Phaser.Input.Keyboard.Key;
+  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
+  private wasd!: {
+    up:    Phaser.Input.Keyboard.Key;
+    down:  Phaser.Input.Keyboard.Key;
+    left:  Phaser.Input.Keyboard.Key;
     right: Phaser.Input.Keyboard.Key;
-    inspect: Phaser.Input.Keyboard.Key;
   };
+  private inspectKey!: Phaser.Input.Keyboard.Key;
 
   constructor(scene: Phaser.Scene, map: CityMap, agentManager: AgentManager, startPlanetId: string) {
     this.scene = scene;
     this.map = map;
     this.agentManager = agentManager;
-    this.currentPlanetId = startPlanetId;
 
+    // Start near the first planet
     const pos = map.getPlanetPixelPos(startPlanetId);
-    const r = map.getPlanetRadius(startPlanetId);
-    this.planetX = pos.x;
-    this.planetY = pos.y;
-    this.orbitRadius = r + ORBIT_OFFSET;
-    this.orbitAngle = Math.PI; // start on the left side
-
-    this.x = this.planetX + Math.cos(this.orbitAngle) * this.orbitRadius;
-    this.y = this.planetY + Math.sin(this.orbitAngle) * this.orbitRadius;
+    const r   = map.getPlanetRadius(startPlanetId);
+    this.x = pos.x - r - 40;
+    this.y = pos.y;
 
     // Visuals
-    this.trailGfx = scene.add.graphics().setDepth(9);
-    this.orbGfx = scene.add.graphics().setDepth(12);
+    this.trailGfx  = scene.add.graphics().setDepth(9);
+    this.orbGfx    = scene.add.graphics().setDepth(12);
     this.labelText = scene.add.text(this.x, this.y - 22, 'YOU', {
       fontSize: '10px',
       color: '#88ccff',
@@ -81,99 +70,81 @@ export default class PlayerController {
 
     // Input
     const kb = scene.input.keyboard!;
-    this.keys = {
-      left:    kb.addKey(Phaser.Input.Keyboard.KeyCodes.LEFT),
-      right:   kb.addKey(Phaser.Input.Keyboard.KeyCodes.RIGHT),
-      inspect: kb.addKey(Phaser.Input.Keyboard.KeyCodes.E),
+    this.cursors = kb.createCursorKeys();
+    this.wasd = {
+      up:    kb.addKey(Phaser.Input.Keyboard.KeyCodes.W),
+      down:  kb.addKey(Phaser.Input.Keyboard.KeyCodes.S),
+      left:  kb.addKey(Phaser.Input.Keyboard.KeyCodes.A),
+      right: kb.addKey(Phaser.Input.Keyboard.KeyCodes.D),
     };
-
-    this.keys.left.on('down', () => this.travelToPlanet(-1));
-    this.keys.right.on('down', () => this.travelToPlanet(1));
-    this.keys.inspect.on('down', () => this.tryInspect());
+    this.inspectKey = kb.addKey(Phaser.Input.Keyboard.KeyCodes.E);
+    this.inspectKey.on('down', () => this.tryInspect());
   }
 
   update(delta: number): void {
-    if (!this.traveling) {
-      // Orbit current planet
-      this.orbitAngle += PLAYER_ORBIT_SPEED * delta;
-      this.x = this.planetX + Math.cos(this.orbitAngle) * this.orbitRadius;
-      this.y = this.planetY + Math.sin(this.orbitAngle) * this.orbitRadius;
-      this.syncVisuals();
+    const dt = delta / 1000; // seconds
 
-      // Show inspect prompt if there's an agent to inspect here
-      this.promptText.setVisible(this.hasNearbyAgent());
-    } else {
-      // Trail during travel
+    // Directional input
+    const left  = this.cursors.left.isDown  || this.wasd.left.isDown;
+    const right = this.cursors.right.isDown || this.wasd.right.isDown;
+    const up    = this.cursors.up.isDown    || this.wasd.up.isDown;
+    const down  = this.cursors.down.isDown  || this.wasd.down.isDown;
+
+    let dx = 0;
+    let dy = 0;
+    if (left)  dx -= 1;
+    if (right) dx += 1;
+    if (up)    dy -= 1;
+    if (down)  dy += 1;
+
+    // Normalise diagonal movement
+    if (dx !== 0 && dy !== 0) {
+      dx *= 0.7071;
+      dy *= 0.7071;
+    }
+
+    const moving = dx !== 0 || dy !== 0;
+
+    if (moving) {
+      this.x += dx * MOVE_SPEED * dt;
+      this.y += dy * MOVE_SPEED * dt;
+
+      // Trail
       this.trailPoints.push({ x: this.x, y: this.y });
       if (this.trailPoints.length > 40) this.trailPoints.shift();
 
       this.trailGfx.clear();
       for (let i = 1; i < this.trailPoints.length; i++) {
         const t = i / this.trailPoints.length;
-        this.trailGfx.fillStyle(PLAYER_COLOR, t * 0.5);
+        this.trailGfx.fillStyle(PLAYER_COLOR, t * 0.4);
         this.trailGfx.fillCircle(this.trailPoints[i].x, this.trailPoints[i].y, 1 + t * 2);
       }
-    }
-  }
-
-  private travelToPlanet(direction: -1 | 1): void {
-    if (this.traveling) return;
-
-    const allPlanets = this.map.getAllPlanets();
-    const idx = allPlanets.findIndex(p => p.id === this.currentPlanetId);
-    const nextIdx = ((idx + direction) + allPlanets.length) % allPlanets.length;
-    const target = allPlanets[nextIdx];
-
-    const toPos = this.map.getPlanetPixelPos(target.id);
-    const toRadius = this.map.getPlanetRadius(target.id);
-    const orbitRadius = toRadius + ORBIT_OFFSET;
-
-    const entryAngle = Math.atan2(this.y - toPos.y, this.x - toPos.x);
-    const entryX = toPos.x + Math.cos(entryAngle) * orbitRadius;
-    const entryY = toPos.y + Math.sin(entryAngle) * orbitRadius;
-
-    const dist = Math.hypot(entryX - this.x, entryY - this.y);
-    const duration = Math.max(1400, 600 + dist * 1.5);
-
-    this.traveling = true;
-    this.promptText.setVisible(false);
-
-    const pos = { x: this.x, y: this.y };
-    this.scene.tweens.add({
-      targets: pos,
-      x: entryX,
-      y: entryY,
-      duration,
-      ease: 'Sine.InOut',
-      onUpdate: () => {
-        this.x = pos.x;
-        this.y = pos.y;
-        this.syncVisuals();
-      },
-      onComplete: () => {
-        this.traveling = false;
-        this.trailPoints = [];
+    } else {
+      // Fade trail when stopped
+      if (this.trailPoints.length > 0) {
+        this.trailPoints.shift();
         this.trailGfx.clear();
-        this.currentPlanetId = target.id;
-        this.planetX = toPos.x;
-        this.planetY = toPos.y;
-        this.orbitRadius = orbitRadius;
-        this.orbitAngle = entryAngle;
-        this.x = entryX;
-        this.y = entryY;
-        this.syncVisuals();
-      },
-    });
+        for (let i = 1; i < this.trailPoints.length; i++) {
+          const t = i / this.trailPoints.length;
+          this.trailGfx.fillStyle(PLAYER_COLOR, t * 0.4);
+          this.trailGfx.fillCircle(this.trailPoints[i].x, this.trailPoints[i].y, 1 + t * 2);
+        }
+      }
+    }
+
+    this.syncVisuals();
+
+    // Inspect prompt
+    this.promptText.setVisible(this.hasNearbyAgent());
   }
 
   private tryInspect(): void {
-    if (this.traveling) return;
     const agents = this.agentManager.getAgents();
     for (const managed of agents) {
-      if (
-        managed.state.currentPlanetId === this.currentPlanetId &&
-        !managed.movement.isMoving()
-      ) {
+      const ax = managed.sprite.x;
+      const ay = managed.sprite.y;
+      const dist = Math.hypot(ax - this.x, ay - this.y);
+      if (dist <= INSPECT_RANGE && !managed.movement.isMoving()) {
         this.agentManager.pauseAgent(managed.state.id);
         this.scene.events.emit('AGENT_SELECTED', managed.state);
         return;
@@ -183,9 +154,15 @@ export default class PlayerController {
 
   private hasNearbyAgent(): boolean {
     const agents = this.agentManager.getAgents();
-    return agents.some(
-      m => m.state.currentPlanetId === this.currentPlanetId && !m.movement.isMoving()
-    );
+    return agents.some(m => {
+      const dist = Math.hypot(m.sprite.x - this.x, m.sprite.y - this.y);
+      return dist <= INSPECT_RANGE && !m.movement.isMoving();
+    });
+  }
+
+  /** No longer used — kept as a no-op so callers don't break. */
+  getCurrentPlanetId(): string {
+    return '';
   }
 
   private drawOrb(): void {
@@ -211,10 +188,6 @@ export default class PlayerController {
     this.orbGfx.setPosition(this.x, this.y);
     this.labelText.setPosition(this.x, this.y - 22);
     this.promptText.setPosition(this.x, this.y - 36);
-  }
-
-  getCurrentPlanetId(): string {
-    return this.currentPlanetId;
   }
 
   destroy(): void {
