@@ -10,7 +10,7 @@ import {
   AGENT_DECISION_STAGGER_MS,
   TRACE_AGENT_DECISIONS,
 } from '../config';
-import { getBuyListing, getSellListings } from '../../../../shared/market';
+import { getBuyListing, getSellListings } from '@shared/market';
 
 export interface AgentDecisionTrace {
   agentName: string;
