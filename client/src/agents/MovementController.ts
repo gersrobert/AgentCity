@@ -163,36 +163,7 @@ export default class MovementController {
     const start: Vec2 = { x: orb.x, y: orb.y };
     const end: Vec2 = { x: entryX, y: entryY };
 
-    // For each extra obstacle (the blackhole), compute a forced bypass point so
-    // agents always arc around it — even when the direct path never intersects it
-    // (e.g. adjacent inner-ring planets both on the same side).
-    // The bypass sits at the average orbital distance of start/end, in the
-    // direction from the obstacle toward the midpoint of the trip.
-    const forcedBypass: Vec2[] = [];
-    for (const obs of extraObstacles) {
-      const mx = (start.x + end.x) / 2;
-      const my = (start.y + end.y) / 2;
-      const dmx = mx - obs.x;
-      const dmy = my - obs.y;
-      const dmLen = Math.hypot(dmx, dmy);
-
-      if (dmLen < 20) {
-        // Planets nearly opposite — the direct path crosses the obstacle centre;
-        // buildWaypoints handles that case via intersection detection.
-        continue;
-      }
-
-      const rStart = Math.hypot(start.x - obs.x, start.y - obs.y);
-      const rEnd   = Math.hypot(end.x   - obs.x, end.y   - obs.y);
-      const rBypass = (rStart + rEnd) / 2;
-
-      forcedBypass.push({
-        x: obs.x + (dmx / dmLen) * rBypass,
-        y: obs.y + (dmy / dmLen) * rBypass,
-      });
-    }
-
-    const allStops = [start, ...forcedBypass, ...passThroughPoints, end];
+    const allStops = [start, ...passThroughPoints, end];
     const path: Vec2[] = [start];
     for (let i = 1; i < allStops.length; i++) {
       const avoidance = buildWaypoints(allStops[i - 1], allStops[i], planetObstacles);

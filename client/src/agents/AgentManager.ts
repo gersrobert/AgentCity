@@ -229,7 +229,7 @@ export default class AgentManager {
         : this.map.getPlanetRadius(decision.targetLocationId);
 
       const { width: mapW, height: mapH } = this.map.getMapDimensions();
-      const bhObstacle = this.bhAvoidanceObstacle(mapW, mapH, decision.targetLocationId);
+      const bhWaypoints = this.bhPassThrough(sprite.x, sprite.y, targetPos.x, targetPos.y, mapW, mapH, decision.targetLocationId);
 
       const onArrival = () => {
         state.currentPlanetId = decision.targetLocationId;
@@ -240,8 +240,11 @@ export default class AgentManager {
         managed.activeTrip = null;
         state.lastDecisionAt = Date.now() - AGENT_DECISION_INTERVAL_MS;
       };
+      // Keep BH as an obstacle too so the segment from BH-edge → destination
+      // doesn't clip back through the black hole center.
+      const bhObstacle = this.bhObstacleList(mapW, mapH, decision.targetLocationId);
       managed.activeTrip = { toX: targetPos.x, toY: targetPos.y, toRadius: targetRadius, onArrival };
-      movement.travelTo(sprite, targetPos.x, targetPos.y, targetRadius, onArrival, this.map.getAllPlanets(), mapW, mapH, bhObstacle);
+      movement.travelTo(sprite, targetPos.x, targetPos.y, targetRadius, onArrival, this.map.getAllPlanets(), mapW, mapH, bhObstacle, bhWaypoints);
     } catch (err) {
       console.warn(`[AgentManager] Decision failed for ${state.name}:`, err);
       state.lastDecisionAt = Date.now();
@@ -321,13 +324,57 @@ export default class AgentManager {
 
   // ─── Player interaction API ───────────────────────────────────────────────
 
-  private bhAvoidanceObstacle(
+  /** Black hole as an avoidance obstacle so buildWaypoints steers around its body. */
+  private bhObstacleList(
     mapW: number,
     mapH: number,
     targetId?: string | null,
   ): Array<{ x: number; y: number; radius: number }> {
     if (!this.blackHole || targetId === 'blackhole') return [];
     return [{ x: mapW / 2, y: mapH / 2, radius: Math.max(BH_MIN_AVOID_RADIUS, this.blackHole.getRadius()) }];
+  }
+
+  /**
+   * Compute a mandatory pass-through point on the black hole's edge so that
+   * agents always travel *through* the black hole when going between planets.
+   *
+   * The point is placed on the black hole's surface (radius + small clearance)
+   * on the side that faces the midpoint of the trip (start → end), so the
+   * agent naturally dips into the black hole before continuing to the destination.
+   *
+   * Returns [] when the target IS the black hole (already going there directly).
+   */
+  private bhPassThrough(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+    mapW: number,
+    mapH: number,
+    targetId?: string | null,
+  ): Array<{ x: number; y: number }> {
+    if (!this.blackHole || targetId === 'blackhole') return [];
+
+    const bhX = mapW / 2;
+    const bhY = mapH / 2;
+    const bhR = Math.max(BH_MIN_AVOID_RADIUS, this.blackHole.getRadius());
+
+    // Direction from black hole toward the midpoint of the trip
+    const mx = (fromX + toX) / 2;
+    const my = (fromY + toY) / 2;
+    const dmx = mx - bhX;
+    const dmy = my - bhY;
+    const dmLen = Math.hypot(dmx, dmy);
+
+    if (dmLen < 1) {
+      // Start/end are directly opposite through the center — pick any edge point
+      return [{ x: bhX + bhR, y: bhY }];
+    }
+
+    // Place the pass-through point on the black hole surface facing the midpoint
+    const nx = dmx / dmLen;
+    const ny = dmy / dmLen;
+    return [{ x: bhX + nx * bhR, y: bhY + ny * bhR }];
   }
 
   /** Returns true if the agent is currently orbiting a planet (not traveling). */
@@ -346,8 +393,10 @@ export default class AgentManager {
     if (m.movement.isMoving() && m.activeTrip) {
       const { toX, toY, toRadius, onArrival } = m.activeTrip;
       const { width: mapW, height: mapH } = this.map.getMapDimensions();
-      const bhObstacle = this.bhAvoidanceObstacle(mapW, mapH, m.state.targetLocationId);
-      m.movement.pauseMidFlight(toX, toY, toRadius, onArrival, this.map.getAllPlanets(), mapW, mapH, bhObstacle);
+      // resumeTravel rebuilds the path from current position, so pass BH waypoints
+      const bhWaypoints = this.bhPassThrough(m.sprite.x, m.sprite.y, toX, toY, mapW, mapH, m.state.targetLocationId);
+      const bhObstacle = this.bhObstacleList(mapW, mapH, m.state.targetLocationId);
+      m.movement.pauseMidFlight(toX, toY, toRadius, onArrival, this.map.getAllPlanets(), mapW, mapH, bhObstacle, bhWaypoints);
     } else {
       m.movement.stop();
     }
@@ -474,9 +523,10 @@ export default class AgentManager {
       m.activeTrip = null;
       m.state.lastDecisionAt = Date.now() - AGENT_DECISION_INTERVAL_MS;
     };
-    const bhObstacle = this.bhAvoidanceObstacle(mapW, mapH);
+    const bhWaypoints = this.bhPassThrough(m.sprite.x, m.sprite.y, targetPos.x, targetPos.y, mapW, mapH, target.id);
+    const bhObstacle = this.bhObstacleList(mapW, mapH, target.id);
     m.activeTrip = { toX: targetPos.x, toY: targetPos.y, toRadius: targetRadius, onArrival };
-    m.movement.travelTo(m.sprite, targetPos.x, targetPos.y, targetRadius, onArrival, this.map.getAllPlanets(), mapW, mapH, bhObstacle);
+    m.movement.travelTo(m.sprite, targetPos.x, targetPos.y, targetRadius, onArrival, this.map.getAllPlanets(), mapW, mapH, bhObstacle, bhWaypoints);
   }
 
   getAgents(): ManagedAgent[] {
