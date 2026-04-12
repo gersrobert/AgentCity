@@ -1,108 +1,117 @@
 import Phaser from 'phaser';
 import InspectorPanel from '../ui/InspectorPanel';
-import ChatPanel from '../ui/ChatPanel';
 import MinigameOverlay from '../ui/MinigameOverlay';
 import PlanetInfoPanel from '../ui/PlanetInfoPanel';
 import type { AgentState } from '@shared/types';
 import type { PlanetData } from '../map/mapData';
-import { GAME_WIDTH, GAME_HEIGHT, RIGHT_PANEL_WIDTH } from '../config';
-import { worldState, isGameOver, SURVIVAL_DURATION_S } from '../store/worldState';
-import type { AgentDecisionTrace } from '../agents/AgentManager';
+import { worldState, isGameOver } from '../store/worldState';
 
-const RIGHT_PANEL_HTML = `
-<div id="right-panel" style="
-  width: ${RIGHT_PANEL_WIDTH}px;
-  height: ${GAME_HEIGHT}px;
-  background: #12122a;
-  border-left: 2px solid #6644aa;
+const HUD_HTML = `
+<div id="hud-bar" style="
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(18,18,42,0.85);
+  border: 1px solid #6644aa;
+  border-radius: 8px;
+  padding: 8px 18px;
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 18px;
   font-family: monospace;
   color: #ffffff;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+">
+  <div style="display:flex; align-items:center; gap:6px;">
+    <div style="font-size:9px; color:#ff6644; text-transform:uppercase; letter-spacing:1px;">NIC</div>
+    <div id="blackhole-pct" style="font-size:13px; color:#ff4422; font-weight:bold; min-width:36px;">0%</div>
+    <div style="width:100px; height:5px; background:#333355; border-radius:3px; overflow:hidden;">
+      <div id="blackhole-fill" style="height:100%; width:0%; background:#880022; border-radius:3px; transition: width 0.4s, background 0.4s;"></div>
+    </div>
+  </div>
+  <div style="width:1px; height:18px; background:#6644aa44;"></div>
+  <div style="display:flex; align-items:center; gap:5px;">
+    <div style="font-size:9px; color:#446688; text-transform:uppercase; letter-spacing:1px;">Survive</div>
+    <div id="survival-timer" style="font-size:13px; color:#6699bb; font-weight:bold; font-family:monospace; min-width:38px;">10:00</div>
+  </div>
+</div>
+
+<!-- Planet info popup (hidden until planet clicked) -->
+<div id="planet-section" style="
+  display: none;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 300px;
+  max-height: 70vh;
+  background: #12122a;
+  border: 2px solid #6644aa;
+  border-radius: 10px;
+  padding: 14px;
+  font-family: monospace;
+  color: #ffffff;
+  z-index: 1100;
+  overflow-y: auto;
+  box-shadow: 0 0 30px rgba(102,68,170,0.4);
+">
+  <div id="planet-section-content"></div>
+</div>
+
+<!-- Inspector popup (hidden until agent selected) -->
+<div id="inspector-section" style="
+  display: none;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 300px;
+  max-height: 80vh;
+  background: #12122a;
+  border: 2px solid #6644aa;
+  border-radius: 10px;
+  font-family: monospace;
+  color: #ffffff;
+  z-index: 1100;
+  box-shadow: 0 0 30px rgba(102,68,170,0.4);
+  flex-direction: column;
   overflow: hidden;
 ">
-
-  <!-- Title bar -->
+  <!-- Sticky header -->
   <div style="
-    padding: 10px 14px;
-    background: #1a1a3e;
-    border-bottom: 1px solid #6644aa;
-    font-size: 15px;
-    font-weight: bold;
-    color: #ffdd44;
-    letter-spacing: 1px;
-    flex-shrink: 0;
-  ">NIC</div>
-
-  <!-- Blackhole Growth Bar + Survival Timer -->
-  <div id="blackhole-bar" style="
-    padding: 8px 14px;
-    background: #1a1a3e;
-    border-bottom: 1px solid #6644aa;
+    display:flex; justify-content:space-between; align-items:center;
+    padding: 12px 14px 8px;
+    border-bottom: 1px solid #6644aa44;
     flex-shrink: 0;
   ">
-    <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px;">
-      <div style="font-size:9px; color:#ff6644; text-transform:uppercase; letter-spacing:1px;">Nic Growth</div>
-      <div style="display:flex; align-items:center; gap:5px;">
-        <div style="font-size:9px; color:#446688; text-transform:uppercase; letter-spacing:1px;">Survive</div>
-        <div id="survival-timer" style="font-size:12px; color:#6699bb; font-weight:bold; font-family:monospace; min-width:38px; text-align:right;">10:00</div>
-      </div>
-    </div>
-    <div style="display:flex; align-items:center; gap:8px;">
-      <div id="blackhole-pct" style="font-size:14px; color:#ff4422; font-weight:bold; min-width:40px;">0%</div>
-      <div style="flex:1; height:6px; background:#333355; border-radius:3px; overflow:hidden;">
-        <div id="blackhole-fill" style="height:100%; width:0%; background:#880022; border-radius:3px; transition: width 0.4s, background 0.4s;"></div>
-      </div>
-    </div>
-    <div style="font-size:8px; color:#555588; margin-top:4px;">← → cycle planets · E inspect agent</div>
+    <span id="inspector-name" style="font-size:15px; color:#ffdd44; font-weight:bold; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:220px;"></span>
+    <button id="inspector-close" style="
+      background: none;
+      border: 1px solid #6644aa;
+      color: #aaaaaa;
+      border-radius: 4px;
+      padding: 2px 8px;
+      cursor: pointer;
+      font-size: 11px;
+      flex-shrink: 0;
+    ">✕</button>
   </div>
-
-  <!-- Planet info section (hidden until planet clicked) -->
-  <div id="planet-section" style="
-    display: none;
-    flex-direction: column;
-    padding: 12px 14px;
-    border-bottom: 2px solid #6644aa;
-    background: #1a1a3e;
-    flex-shrink: 0;
-    overflow-y: auto;
-    max-height: 55%;
-  ">
-    <div id="planet-section-content"></div>
-  </div>
-
-  <!-- Inspector section (hidden until agent selected) -->
-  <div id="inspector-section" style="
-    display: none;
-    flex-direction: column;
-    padding: 12px 14px;
-    border-bottom: 2px solid #6644aa;
-    background: #1a1a3e;
-    flex-shrink: 0;
-  ">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-      <span id="inspector-name" style="font-size:15px; color:#ffdd44; font-weight:bold;"></span>
-      <button id="inspector-close" style="
-        background: none;
-        border: 1px solid #6644aa;
-        color: #aaaaaa;
-        border-radius: 4px;
-        padding: 2px 8px;
-        cursor: pointer;
-        font-size: 11px;
-      ">✕</button>
-    </div>
+  <!-- Scrollable body -->
+  <div style="overflow-y: auto; padding: 10px 14px 14px; flex: 1; min-height: 0;">
     <div id="inspector-mood" style="font-size:12px; color:#aaffaa; margin-bottom:10px;"></div>
     <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Personality</div>
-    <div id="inspector-personality" style="font-size:10px; color:#cccccc; margin-bottom:10px; line-height:1.4;"></div>
+    <div id="inspector-personality" style="font-size:10px; color:#cccccc; margin-bottom:10px; line-height:1.4; word-break:break-word;"></div>
     <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Mission</div>
-    <div id="inspector-mission" style="font-size:10px; color:#88ddff; margin-bottom:10px; font-style:italic;"></div>
+    <div id="inspector-mission" style="font-size:10px; color:#88ddff; margin-bottom:10px; font-style:italic; word-break:break-word;"></div>
     <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Thinking</div>
-    <div id="inspector-thought" style="font-size:10px; color:#ffffcc; font-style:italic; line-height:1.4; margin-bottom:10px;"></div>
+    <div id="inspector-thought" style="font-size:10px; color:#ffffcc; font-style:italic; line-height:1.4; margin-bottom:10px; word-break:break-word;"></div>
     <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Cargo</div>
     <div id="inspector-cargo" style="font-size:11px; color:#cccccc; margin-bottom:8px; line-height:1.4;"></div>
     <div style="font-size:10px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:3px;">Credits</div>
-    <div id="inspector-cash" style="font-size:12px; color:#ffdd44; margin-bottom:10px;"></div>
+    <div id="inspector-cash" style="font-size:12px; color:#ffdd44; margin-bottom:12px;"></div>
     <div style="display:flex; gap:6px; margin-bottom:10px;">
       <button id="inspector-dismiss-btn" style="
         flex: 1;
@@ -128,63 +137,7 @@ const RIGHT_PANEL_HTML = `
       ">Thorough Inspect</button>
     </div>
     <div id="inspector-result" style="display:none; margin-bottom:8px;">
-      <div id="inspector-result-text" style="font-size:10px; color:#ffffcc; line-height:1.5;"></div>
-    </div>
-  </div>
-
-  <!-- Chat section -->
-  <div style="
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    padding: 12px 14px;
-    overflow: hidden;
-    min-height: 0;
-  ">
-    <div style="font-size:11px; color:#8888cc; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px; flex-shrink:0;">Game Master</div>
-
-    <!-- Chat log -->
-    <div id="chat-log" style="
-      flex: 1;
-      overflow-y: auto;
-      min-height: 0;
-      padding-right: 4px;
-      scrollbar-width: thin;
-      scrollbar-color: #6644aa #12122a;
-    "></div>
-
-    <!-- Input area -->
-    <div style="flex-shrink:0; margin-top:10px;">
-      <div style="display:flex; gap:6px; margin-bottom:6px;">
-        <input
-          id="gm-input"
-          type="text"
-          placeholder="Command the universe..."
-          style="
-            flex: 1;
-            background: #0d0d20;
-            color: #ffffff;
-            border: 1px solid #6644aa;
-            border-radius: 4px;
-            padding: 6px 10px;
-            font-size: 11px;
-            font-family: monospace;
-            outline: none;
-            min-width: 0;
-          "
-        />
-        <button id="gm-send" style="
-          background: #6644aa;
-          color: #fff;
-          border: none;
-          border-radius: 4px;
-          padding: 6px 12px;
-          font-size: 11px;
-          cursor: pointer;
-          white-space: nowrap;
-        ">Send</button>
-      </div>
-      <div id="gm-status" style="font-size:9px; color:#ffaa44; min-height:14px;"></div>
+      <div id="inspector-result-text" style="font-size:10px; color:#ffffcc; line-height:1.5; word-break:break-word;"></div>
     </div>
   </div>
 </div>
@@ -192,40 +145,39 @@ const RIGHT_PANEL_HTML = `
 
 export default class UIScene extends Phaser.Scene {
   private inspectorPanel!: InspectorPanel;
-  private chatPanel!: ChatPanel;
   private minigame!: MinigameOverlay;
   private planetInfoPanel!: PlanetInfoPanel;
   private selectedAgentId: string | null = null;
   private blackholePctEl!: HTMLElement;
   private blackholeFillEl!: HTMLElement;
   private survivalTimerEl!: HTMLElement;
+  private hudEl!: HTMLElement;
 
   constructor() {
     super({ key: 'UIScene' });
   }
 
   create(): void {
-    const panelDom = this.add.dom(
-      GAME_WIDTH - RIGHT_PANEL_WIDTH / 2,
-      GAME_HEIGHT / 2,
-    ).createFromHTML(RIGHT_PANEL_HTML);
+    // Inject HUD + popup HTML directly into document body
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = HUD_HTML;
+    document.body.appendChild(wrapper);
 
-    const container = panelDom.node as HTMLElement;
+    this.hudEl = wrapper;
 
-    this.blackholePctEl  = container.querySelector('#blackhole-pct')    as HTMLElement;
-    this.blackholeFillEl = container.querySelector('#blackhole-fill')   as HTMLElement;
-    this.survivalTimerEl = container.querySelector('#survival-timer')   as HTMLElement;
+    this.blackholePctEl  = document.querySelector('#blackhole-pct')    as HTMLElement;
+    this.blackholeFillEl = document.querySelector('#blackhole-fill')   as HTMLElement;
+    this.survivalTimerEl = document.querySelector('#survival-timer')   as HTMLElement;
 
     this.inspectorPanel = new InspectorPanel(
-      container,
+      document.body,
       () => { this.handleDismiss(this.selectedAgentId!); },
       (agentId: string) => { this.handleThoroughInspect(agentId); },
       (agentId: string) => { this.handleDismiss(agentId); },
     );
 
     this.minigame = new MinigameOverlay();
-    this.chatPanel = new ChatPanel(this, container);
-    this.planetInfoPanel = new PlanetInfoPanel(container);
+    this.planetInfoPanel = new PlanetInfoPanel(document.body);
 
     const gameScene = this.scene.get('GameScene');
 
@@ -239,10 +191,6 @@ export default class UIScene extends Phaser.Scene {
       if (this.selectedAgentId === agent.id) {
         this.inspectorPanel.update(agent);
       }
-    });
-
-    gameScene.events.on('AGENT_DECISION', (trace: AgentDecisionTrace) => {
-      this.chatPanel.logAgentDecision(trace);
     });
 
     // Fired by AgentManager when player drifts out of range or a new agent is opened
@@ -279,11 +227,6 @@ export default class UIScene extends Phaser.Scene {
       this.inspectorPanel.hide();
       this.selectedAgentId = null;
       this.planetInfoPanel.show(planet);
-    });
-
-    // Relay world events from ChatPanel back to GameScene
-    this.events.on('WORLD_EVENT', (event: unknown) => {
-      gameScene.events.emit('WORLD_EVENT', event);
     });
   }
 
@@ -365,10 +308,9 @@ export default class UIScene extends Phaser.Scene {
 
   private showControlsHint(): void {
     const { width, height } = this.cameras.main;
-    const mapWidth = width - (width - this.cameras.main.width);
 
     const hint = this.add.text(
-      (width - 300) / 2,
+      width / 2,
       height * 0.88,
       'W  Thrust    A / D  Rotate    E  Inspect agent',
       {

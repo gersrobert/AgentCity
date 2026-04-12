@@ -1,7 +1,7 @@
 export const TILE_SIZE = 32;
 export const MAP_WIDTH_TILES = 32;
 export const MAP_HEIGHT_TILES = 32;
-export const RIGHT_PANEL_WIDTH = 300;
+export const RIGHT_PANEL_WIDTH = 0;
 export const GAME_WIDTH = window.innerWidth;
 export const GAME_HEIGHT = window.innerHeight;
 
