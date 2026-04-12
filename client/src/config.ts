@@ -37,6 +37,9 @@ export const PLAYER_INSPECT_RADIUS_SAME_PLANET = true;
 // Each illegal item delivery grows the blackhole by this fraction of max size.
 // 10 deliveries to fill = 0.1 per delivery.
 export const BLACKHOLE_GROWTH_PER_DELIVERY = 0.1;
+// Minimum avoidance radius used when routing around the blackhole so that
+// arc-routing triggers even when the blackhole is still small.
+export const BH_MIN_AVOID_RADIUS = 80;
 
 // ─── Progressive unlock ───────────────────────────────────────────────────────
 export const STARTING_PLANET_COUNT = 2;   // planets active at game start

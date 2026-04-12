@@ -17,17 +17,17 @@ interface InterruptedTrip {
   mapWidth: number;
   mapHeight: number;
   extraObstacles: Array<{ x: number; y: number; radius: number }>;
+  passThroughPoints: Vec2[];
 }
 
 /**
- * Returns a list of intermediate waypoints that steer around any planet
- * whose body overlaps the straight-line path from `start` to `end`.
+ * Returns waypoints that steer around any obstacle whose body overlaps the
+ * straight-line path from `start` to `end`.
  *
- * Algorithm: for each planet, compute the closest point on the segment.
- * If that point is within (radius + clearance) of the planet centre,
- * insert one waypoint offset perpendicularly away from the planet.
- * Waypoints are sorted by distance along the original path so the agent
- * always moves in the correct direction.
+ * One waypoint per intersecting obstacle, placed outside the avoidance radius
+ * in the perpendicular-away-from-obstacle direction.  When the path passes
+ * exactly through the obstacle centre (degenerate case) the path's own
+ * left-normal is used so the waypoint is never placed at the centre itself.
  */
 function buildWaypoints(
   start: Vec2,
@@ -40,6 +40,7 @@ function buildWaypoints(
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const lenSq = dx * dx + dy * dy;
+  const len = Math.sqrt(lenSq) || 1;
 
   for (const planet of planets) {
     const avoidRadius = planet.radius + clearance;
@@ -53,24 +54,30 @@ function buildWaypoints(
     const closestY = start.y + t * dy;
     const distToPath = Math.hypot(planet.x - closestX, planet.y - closestY);
 
-    if (distToPath < avoidRadius && t > 0.05 && t < 0.95) {
-      // Perpendicular direction away from planet
-      const perpX = closestX - planet.x;
-      const perpY = closestY - planet.y;
-      const perpLen = Math.hypot(perpX, perpY) || 1;
+    if (distToPath >= avoidRadius || t <= 0.05 || t >= 0.95) continue;
 
-      const pushDist = avoidRadius - distToPath + 20; // extra buffer
-      waypoints.push({
-        x: closestX + (perpX / perpLen) * pushDist,
-        y: closestY + (perpY / perpLen) * pushDist,
-        t,
-      });
+    // Direction from planet centre away from the path.
+    // When the path passes through the planet centre (distToPath ≈ 0) the
+    // perpendicular is undefined — fall back to the path's left-normal so the
+    // waypoint is never placed at the obstacle centre.
+    let nx: number, ny: number;
+    if (distToPath > 0.5) {
+      nx = (closestX - planet.x) / distToPath;
+      ny = (closestY - planet.y) / distToPath;
+    } else {
+      nx = -dy / len;
+      ny =  dx / len;
     }
+
+    // Waypoint is placed just outside the avoidance radius from the planet centre
+    waypoints.push({
+      x: planet.x + nx * (avoidRadius + 20),
+      y: planet.y + ny * (avoidRadius + 20),
+      t,
+    });
   }
 
-  // Sort waypoints by their position along the original path
   waypoints.sort((a, b) => a.t - b.t);
-
   return waypoints;
 }
 
@@ -95,6 +102,7 @@ export default class MovementController {
     mapWidth = 1,
     mapHeight = 1,
     extraObstacles: Array<{ x: number; y: number; radius: number }> = [],
+    passThroughPoints: Vec2[] = [],
   ): void {
     this.stop();
     this._interrupted = null;
@@ -103,7 +111,7 @@ export default class MovementController {
     this._traveling = true;
     this._orb = orb;
 
-    this._startTrip(orb, toX, toY, toRadius, onArrival, allPlanets, mapWidth, mapHeight, extraObstacles);
+    this._startTrip(orb, toX, toY, toRadius, onArrival, allPlanets, mapWidth, mapHeight, extraObstacles, passThroughPoints);
   }
 
   /** Restart an interrupted mid-flight trip from the agent's current position. */
@@ -112,12 +120,12 @@ export default class MovementController {
     if (!trip) return;
     this._interrupted = null;
 
-    const { orb, toX, toY, toRadius, onArrival, allPlanets, mapWidth, mapHeight, extraObstacles } = trip;
+    const { orb, toX, toY, toRadius, onArrival, allPlanets, mapWidth, mapHeight, extraObstacles, passThroughPoints } = trip;
     orb.traveling = true;
     this._traveling = true;
     this._orb = orb;
 
-    this._startTrip(orb, toX, toY, toRadius, onArrival, allPlanets, mapWidth, mapHeight, extraObstacles);
+    this._startTrip(orb, toX, toY, toRadius, onArrival, allPlanets, mapWidth, mapHeight, extraObstacles, passThroughPoints);
   }
 
   hasInterruptedTrip(): boolean {
@@ -134,6 +142,7 @@ export default class MovementController {
     mapWidth: number,
     mapHeight: number,
     extraObstacles: Array<{ x: number; y: number; radius: number }> = [],
+    passThroughPoints: Vec2[] = [],
   ): void {
     // Entry point on destination orbit ring
     const orbitRadius = toRadius + 22;
@@ -151,13 +160,44 @@ export default class MovementController {
       ...extraObstacles,
     ];
 
-    // Compute avoidance waypoints
     const start: Vec2 = { x: orb.x, y: orb.y };
     const end: Vec2 = { x: entryX, y: entryY };
-    const midpoints = buildWaypoints(start, end, planetObstacles);
 
-    // Full path: start → waypoints → end
-    const path: Vec2[] = [start, ...midpoints, end];
+    // For each extra obstacle (the blackhole), compute a forced bypass point so
+    // agents always arc around it — even when the direct path never intersects it
+    // (e.g. adjacent inner-ring planets both on the same side).
+    // The bypass sits at the average orbital distance of start/end, in the
+    // direction from the obstacle toward the midpoint of the trip.
+    const forcedBypass: Vec2[] = [];
+    for (const obs of extraObstacles) {
+      const mx = (start.x + end.x) / 2;
+      const my = (start.y + end.y) / 2;
+      const dmx = mx - obs.x;
+      const dmy = my - obs.y;
+      const dmLen = Math.hypot(dmx, dmy);
+
+      if (dmLen < 20) {
+        // Planets nearly opposite — the direct path crosses the obstacle centre;
+        // buildWaypoints handles that case via intersection detection.
+        continue;
+      }
+
+      const rStart = Math.hypot(start.x - obs.x, start.y - obs.y);
+      const rEnd   = Math.hypot(end.x   - obs.x, end.y   - obs.y);
+      const rBypass = (rStart + rEnd) / 2;
+
+      forcedBypass.push({
+        x: obs.x + (dmx / dmLen) * rBypass,
+        y: obs.y + (dmy / dmLen) * rBypass,
+      });
+    }
+
+    const allStops = [start, ...forcedBypass, ...passThroughPoints, end];
+    const path: Vec2[] = [start];
+    for (let i = 1; i < allStops.length; i++) {
+      const avoidance = buildWaypoints(allStops[i - 1], allStops[i], planetObstacles);
+      path.push(...avoidance, allStops[i]);
+    }
 
     // Total path length for duration calculation
     let totalDist = 0;
@@ -239,6 +279,7 @@ export default class MovementController {
     mapWidth: number,
     mapHeight: number,
     extraObstacles: Array<{ x: number; y: number; radius: number }> = [],
+    passThroughPoints: Vec2[] = [],
   ): void {
     if (!this._traveling || !this._orb) return;
 
@@ -257,6 +298,7 @@ export default class MovementController {
       mapWidth,
       mapHeight,
       extraObstacles,
+      passThroughPoints,
     };
 
     // Keep orb frozen at current position — do NOT clear traveling on the sprite

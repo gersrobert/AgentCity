@@ -11,6 +11,7 @@ import {
   AGENT_DECISION_STAGGER_MS,
   TRACE_AGENT_DECISIONS,
   BLACKHOLE_GROWTH_PER_DELIVERY,
+  BH_MIN_AVOID_RADIUS,
 } from '../config';
 import { getBuyListing, getSellListings, ILLEGAL_CASH_RESERVE } from '@shared/market';
 import AudioManager from '../audio/AudioManager';
@@ -66,6 +67,8 @@ export default class AgentManager {
 
   /** Pause agentId and open the inspector. If another agent was already open, resume it first. */
   openInspection(agentId: string): void {
+    // Only allow intercepting agents that are in transit (not orbiting a planet)
+    if (this.isAgentOrbitingPlanet(agentId)) return;
     if (this.inspectedAgentId && this.inspectedAgentId !== agentId) {
       this.resumeAgent(this.inspectedAgentId);
       this.scene.events.emit('INSPECTION_CLOSED');
@@ -95,10 +98,13 @@ export default class AgentManager {
 
       sprite.getGraphics().on('pointerdown', () => {
         if (!this.isPlayerNear(sprite.x, sprite.y)) return;
+        if (this.isAgentOrbitingPlanet(agentState.id)) return;
         this.openInspection(agentState.id);
       });
       sprite.getGraphics().on('pointerover', () => {
-        this.scene.input.setDefaultCursor('pointer');
+        if (!this.isAgentOrbitingPlanet(agentState.id)) {
+          this.scene.input.setDefaultCursor('pointer');
+        }
       });
       sprite.getGraphics().on('pointerout', () => {
         this.scene.input.setDefaultCursor('default');
@@ -156,8 +162,6 @@ export default class AgentManager {
     const { state, sprite, movement } = managed;
     state.pendingDecision = true;
     state.lastDecisionAt = Date.now();
-    // Agent is at their current planet — execute trades
-    const atPlanet = true;
 
     try {
       const request: AgentThinkRequest = {
@@ -177,9 +181,8 @@ export default class AgentManager {
 
       const decision = await backendClient.agentThink(request);
 
-      // Execute trades when the agent just arrived at a planet
-      const soldRecord = atPlanet ? this.executeSell(managed, state.currentPlanetId) : null;
-      const boughtItem = atPlanet ? this.executeBuy(managed, state.currentPlanetId, decision.purchase) : null;
+      const soldRecord = this.executeSell(managed, state.currentPlanetId);
+      const boughtItem = this.executeBuy(managed, state.currentPlanetId, decision.purchase);
 
       // Show money pop-ups above the agent and play audio
       if (soldRecord) {
@@ -194,12 +197,9 @@ export default class AgentManager {
         });
       }
 
-      // Apply state changes
       state.mood = decision.newMood;
       state.currentThought = decision.thought;
       state.targetLocationId = decision.targetLocationId;
-
-      // Update visuals
       sprite.updateMoodColor(state.mood);
       this.scene.events.emit('AGENT_UPDATED', state);
 
@@ -229,10 +229,7 @@ export default class AgentManager {
         : this.map.getPlanetRadius(decision.targetLocationId);
 
       const { width: mapW, height: mapH } = this.map.getMapDimensions();
-      // Add the blackhole as an obstacle for inter-planet travel so agents route around it
-      const bhObstacle = decision.targetLocationId !== 'blackhole' && this.blackHole
-        ? [{ x: mapW / 2, y: mapH / 2, radius: this.blackHole.getRadius() }]
-        : [];
+      const bhObstacle = this.bhAvoidanceObstacle(mapW, mapH, decision.targetLocationId);
 
       const onArrival = () => {
         state.currentPlanetId = decision.targetLocationId;
@@ -241,7 +238,7 @@ export default class AgentManager {
           tileY: Math.round(targetPos.y / 32),
         };
         managed.activeTrip = null;
-        state.lastDecisionAt = Date.now() - AGENT_DECISION_INTERVAL_MS; // decide soon after landing
+        state.lastDecisionAt = Date.now() - AGENT_DECISION_INTERVAL_MS;
       };
       managed.activeTrip = { toX: targetPos.x, toY: targetPos.y, toRadius: targetRadius, onArrival };
       movement.travelTo(sprite, targetPos.x, targetPos.y, targetRadius, onArrival, this.map.getAllPlanets(), mapW, mapH, bhObstacle);
@@ -324,6 +321,15 @@ export default class AgentManager {
 
   // ─── Player interaction API ───────────────────────────────────────────────
 
+  private bhAvoidanceObstacle(
+    mapW: number,
+    mapH: number,
+    targetId?: string | null,
+  ): Array<{ x: number; y: number; radius: number }> {
+    if (!this.blackHole || targetId === 'blackhole') return [];
+    return [{ x: mapW / 2, y: mapH / 2, radius: Math.max(BH_MIN_AVOID_RADIUS, this.blackHole.getRadius()) }];
+  }
+
   /** Returns true if the agent is currently orbiting a planet (not traveling). */
   isAgentOrbitingPlanet(agentId: string, planetId?: string): boolean {
     const m = this.agents.find(a => a.state.id === agentId);
@@ -340,9 +346,7 @@ export default class AgentManager {
     if (m.movement.isMoving() && m.activeTrip) {
       const { toX, toY, toRadius, onArrival } = m.activeTrip;
       const { width: mapW, height: mapH } = this.map.getMapDimensions();
-      const bhObstacle = this.blackHole && m.state.targetLocationId !== 'blackhole'
-        ? [{ x: mapW / 2, y: mapH / 2, radius: this.blackHole.getRadius() }]
-        : [];
+      const bhObstacle = this.bhAvoidanceObstacle(mapW, mapH, m.state.targetLocationId);
       m.movement.pauseMidFlight(toX, toY, toRadius, onArrival, this.map.getAllPlanets(), mapW, mapH, bhObstacle);
     } else {
       m.movement.stop();
@@ -382,10 +386,13 @@ export default class AgentManager {
 
     sprite.getGraphics().on('pointerdown', () => {
       if (!this.isPlayerNear(sprite.x, sprite.y)) return;
+      if (this.isAgentOrbitingPlanet(agentState.id)) return;
       this.openInspection(agentState.id);
     });
     sprite.getGraphics().on('pointerover', () => {
-      this.scene.input.setDefaultCursor('pointer');
+      if (!this.isAgentOrbitingPlanet(agentState.id)) {
+        this.scene.input.setDefaultCursor('pointer');
+      }
     });
     sprite.getGraphics().on('pointerout', () => {
       this.scene.input.setDefaultCursor('default');
@@ -467,9 +474,7 @@ export default class AgentManager {
       m.activeTrip = null;
       m.state.lastDecisionAt = Date.now() - AGENT_DECISION_INTERVAL_MS;
     };
-    const bhObstacle = this.blackHole
-      ? [{ x: mapW / 2, y: mapH / 2, radius: this.blackHole.getRadius() }]
-      : [];
+    const bhObstacle = this.bhAvoidanceObstacle(mapW, mapH);
     m.activeTrip = { toX: targetPos.x, toY: targetPos.y, toRadius: targetRadius, onArrival };
     m.movement.travelTo(m.sprite, targetPos.x, targetPos.y, targetRadius, onArrival, this.map.getAllPlanets(), mapW, mapH, bhObstacle);
   }

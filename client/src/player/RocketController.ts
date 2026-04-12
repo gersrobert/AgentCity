@@ -244,7 +244,7 @@ export default class RocketController {
         managed.sprite.x - this.x,
         managed.sprite.y - this.y,
       );
-      if (dist <= INSPECT_RANGE) {
+      if (dist <= INSPECT_RANGE && !this.agentManager.isAgentOrbitingPlanet(managed.state.id)) {
         this.agentManager.openInspection(managed.state.id);
         return;
       }
@@ -252,10 +252,9 @@ export default class RocketController {
   }
 
   private hasNearbyAgent(): boolean {
-    return this.agentManager.getAgents().some((m) => {
-      return (
-        Math.hypot(m.sprite.x - this.x, m.sprite.y - this.y) <= INSPECT_RANGE
-      );
-    });
+    return this.agentManager.getAgents().some((m) =>
+      Math.hypot(m.sprite.x - this.x, m.sprite.y - this.y) <= INSPECT_RANGE &&
+      m.movement.isMoving(),
+    );
   }
 }

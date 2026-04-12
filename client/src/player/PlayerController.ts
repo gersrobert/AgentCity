@@ -194,7 +194,7 @@ export default class PlayerController {
       const ax = managed.sprite.x;
       const ay = managed.sprite.y;
       const dist = Math.hypot(ax - this.x, ay - this.y);
-      if (dist <= INSPECT_RANGE) {
+      if (dist <= INSPECT_RANGE && !this.agentManager.isAgentOrbitingPlanet(managed.state.id)) {
         this.agentManager.pauseAgent(managed.state.id);
         this.scene.events.emit('AGENT_SELECTED', managed.state);
         return;
@@ -204,10 +204,10 @@ export default class PlayerController {
 
   private hasNearbyAgent(): boolean {
     const agents = this.agentManager.getAgents();
-    return agents.some(m => {
-      const dist = Math.hypot(m.sprite.x - this.x, m.sprite.y - this.y);
-      return dist <= INSPECT_RANGE;
-    });
+    return agents.some(m =>
+      Math.hypot(m.sprite.x - this.x, m.sprite.y - this.y) <= INSPECT_RANGE &&
+      m.movement.isMoving(),
+    );
   }
 
   /** No longer used — kept as a no-op so callers don't break. */
