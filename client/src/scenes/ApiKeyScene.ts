@@ -236,46 +236,69 @@ export default class ApiKeyScene extends Phaser.Scene {
       return;
     }
 
-    const { width, height } = this.cameras.main;
     const panel = LORE_PANELS[this.lorePanelIdx];
     this.lorePanelIdx++;
 
-    // Destroy previous panel if any
+    // Show each line of this panel one at a time, then advance to the next panel
+    this.showLinesSequentially(panel.lines, 0, firstAgentProfile, firstAgentPlanetId);
+  }
+
+  /**
+   * Displays lines one by one: fade in → hold → fade out → next line.
+   * After the last line of the panel, moves on to the next panel.
+   */
+  private showLinesSequentially(
+    lines: string[],
+    idx: number,
+    firstAgentProfile: unknown,
+    firstAgentPlanetId: string,
+  ): void {
+    if (this.skipping) return;
+
+    if (idx >= lines.length) {
+      // All lines shown — small gap then next panel
+      this.time.delayedCall(400, () => this.showNextLorePanel(firstAgentProfile, firstAgentPlanetId));
+      return;
+    }
+
+    const { width, height } = this.cameras.main;
+
+    // Destroy previous line text if any
     this.lorePanelContainer?.destroy();
     this.lorePanelContainer = this.add.container(width / 2, height / 2);
 
-    const lineSpacing = 28;
-    const totalH = (panel.lines.length - 1) * lineSpacing;
-    const objects: Phaser.GameObjects.Text[] = [];
+    const t = this.add.text(0, 0, lines[idx], {
+      fontSize: '18px',
+      color: '#99bbdd',
+      fontFamily: 'monospace',
+      align: 'center',
+      letterSpacing: 2,
+    }).setOrigin(0.5).setAlpha(0);
 
-    panel.lines.forEach((line, i) => {
-      const t = this.add.text(0, i * lineSpacing - totalH / 2, line, {
-        fontSize: i === 0 ? '18px' : '15px',
-        color: i === 0 ? '#aaccff' : '#778899',
-        fontFamily: 'monospace',
-        align: 'center',
-        letterSpacing: 1,
-      }).setOrigin(0.5).setAlpha(0);
-      this.lorePanelContainer!.add(t);
-      objects.push(t);
-    });
+    this.lorePanelContainer.add(t);
 
-    // Stagger fade-in
-    objects.forEach((t, i) => {
-      this.tweens.add({ targets: t, alpha: 1, duration: 700, delay: i * 300 });
-    });
+    const FADE_IN_MS  = 900;
+    const HOLD_MS     = 2400;
+    const FADE_OUT_MS = 1600;
 
-    // Hold, then fade out entire container and advance
-    const HOLD_MS = 3600;
-    const FADE_MS = 700;
-    this.time.delayedCall(HOLD_MS, () => {
-      if (this.skipping) return;
-      this.tweens.add({
-        targets: this.lorePanelContainer,
-        alpha: 0,
-        duration: FADE_MS,
-        onComplete: () => this.showNextLorePanel(firstAgentProfile, firstAgentPlanetId),
-      });
+    // Fade in
+    this.tweens.add({
+      targets: t,
+      alpha: 1,
+      duration: FADE_IN_MS,
+      onComplete: () => {
+        if (this.skipping) return;
+        // Hold, then fade out
+        this.time.delayedCall(HOLD_MS, () => {
+          if (this.skipping) return;
+          this.tweens.add({
+            targets: t,
+            alpha: 0,
+            duration: FADE_OUT_MS,
+            onComplete: () => this.showLinesSequentially(lines, idx + 1, firstAgentProfile, firstAgentPlanetId),
+          });
+        });
+      },
     });
   }
 
