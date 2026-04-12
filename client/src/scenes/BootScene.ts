@@ -27,16 +27,18 @@ export default class BootScene extends Phaser.Scene {
       progress.fillRoundedRect(width / 2 - 100, height / 2 - 10, 200 * value, 20, 4);
     });
 
-    this.add.text(width / 2, height / 2 - 50, 'AGENTCITY', {
-      fontSize: '32px',
+    this.add.text(width / 2, height / 2 - 50, 'NIC', {
+      fontSize: '48px',
       color: '#ffffff',
       fontStyle: 'bold',
-      letterSpacing: 6,
+      fontFamily: 'monospace',
+      letterSpacing: 14,
     }).setOrigin(0.5);
 
-    this.add.text(width / 2, height / 2 + 40, 'Loading universe...', {
+    this.add.text(width / 2, height / 2 + 40, 'Loading the void...', {
       fontSize: '12px',
       color: '#8866aa',
+      fontFamily: 'monospace',
     }).setOrigin(0.5);
 
     // Load all planet images

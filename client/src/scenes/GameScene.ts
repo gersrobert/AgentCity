@@ -16,7 +16,7 @@ import {
   AGENT_UNLOCK_INTERVAL_MS,
 } from '../config';
 import type { WorldEvent, AgentState, NewAgentProfile } from '@shared/types';
-import { worldState, unlockPlanet } from '../store/worldState';
+import { worldState, unlockPlanet, tickSurvivalTimer, survivalTimeRemaining } from '../store/worldState';
 import * as backendClient from '../api/backendClient';
 import AudioManager from '../audio/AudioManager';
 
@@ -188,6 +188,14 @@ export default class GameScene extends Phaser.Scene {
     this.blackHole.update(delta);
     this.rocket.update(delta);
     this.agentManager.update(_time, delta);
+
+    // Tick survival timer and notify UIScene
+    const playerWon = tickSurvivalTimer(delta);
+    this.scene.get('UIScene').events.emit('TIMER_TICK', survivalTimeRemaining);
+    if (playerWon) {
+      this.scene.get('UIScene').events.emit('PLAYER_WIN');
+      this.scene.pause('GameScene');
+    }
   }
 
   // ── Progressive unlock ────────────────────────────────────────────────────

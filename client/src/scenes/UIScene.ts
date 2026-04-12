@@ -6,7 +6,7 @@ import PlanetInfoPanel from '../ui/PlanetInfoPanel';
 import type { AgentState } from '@shared/types';
 import type { PlanetData } from '../map/mapData';
 import { GAME_WIDTH, GAME_HEIGHT, RIGHT_PANEL_WIDTH } from '../config';
-import { worldState, isGameOver } from '../store/worldState';
+import { worldState, isGameOver, SURVIVAL_DURATION_S } from '../store/worldState';
 import type { AgentDecisionTrace } from '../agents/AgentManager';
 
 const RIGHT_PANEL_HTML = `
@@ -32,16 +32,22 @@ const RIGHT_PANEL_HTML = `
     color: #ffdd44;
     letter-spacing: 1px;
     flex-shrink: 0;
-  ">AgentCity</div>
+  ">NIC</div>
 
-  <!-- Blackhole Growth Bar -->
+  <!-- Blackhole Growth Bar + Survival Timer -->
   <div id="blackhole-bar" style="
     padding: 8px 14px;
     background: #1a1a3e;
     border-bottom: 1px solid #6644aa;
     flex-shrink: 0;
   ">
-    <div style="font-size:9px; color:#ff6644; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">Blackhole Growth</div>
+    <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px;">
+      <div style="font-size:9px; color:#ff6644; text-transform:uppercase; letter-spacing:1px;">Nic Growth</div>
+      <div style="display:flex; align-items:center; gap:5px;">
+        <div style="font-size:9px; color:#446688; text-transform:uppercase; letter-spacing:1px;">Survive</div>
+        <div id="survival-timer" style="font-size:12px; color:#6699bb; font-weight:bold; font-family:monospace; min-width:38px; text-align:right;">10:00</div>
+      </div>
+    </div>
     <div style="display:flex; align-items:center; gap:8px;">
       <div id="blackhole-pct" style="font-size:14px; color:#ff4422; font-weight:bold; min-width:40px;">0%</div>
       <div style="flex:1; height:6px; background:#333355; border-radius:3px; overflow:hidden;">
@@ -192,6 +198,7 @@ export default class UIScene extends Phaser.Scene {
   private selectedAgentId: string | null = null;
   private blackholePctEl!: HTMLElement;
   private blackholeFillEl!: HTMLElement;
+  private survivalTimerEl!: HTMLElement;
 
   constructor() {
     super({ key: 'UIScene' });
@@ -205,8 +212,9 @@ export default class UIScene extends Phaser.Scene {
 
     const container = panelDom.node as HTMLElement;
 
-    this.blackholePctEl = container.querySelector('#blackhole-pct') as HTMLElement;
-    this.blackholeFillEl = container.querySelector('#blackhole-fill') as HTMLElement;
+    this.blackholePctEl  = container.querySelector('#blackhole-pct')    as HTMLElement;
+    this.blackholeFillEl = container.querySelector('#blackhole-fill')   as HTMLElement;
+    this.survivalTimerEl = container.querySelector('#survival-timer')   as HTMLElement;
 
     this.inspectorPanel = new InspectorPanel(
       container,
@@ -249,6 +257,17 @@ export default class UIScene extends Phaser.Scene {
         this.triggerGameOver();
       }
     });
+
+    this.events.on('TIMER_TICK', (remaining: number) => {
+      this.updateSurvivalTimer(remaining);
+    });
+
+    this.events.on('PLAYER_WIN', () => {
+      this.triggerVictory();
+    });
+
+    // Controls hint — fades in briefly then disappears
+    this.time.delayedCall(500, () => this.showControlsHint());
 
     this.input.keyboard!.on('keydown-ESC', () => {
       if (this.selectedAgentId) {
@@ -297,6 +316,75 @@ export default class UIScene extends Phaser.Scene {
     this.blackholeFillEl.style.background = pct < 40 ? '#880022' : pct < 70 ? '#cc2200' : '#ff1100';
   }
 
+  private updateSurvivalTimer(remaining: number): void {
+    const totalSeconds = Math.ceil(remaining);
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    this.survivalTimerEl.textContent = `${mins}:${String(secs).padStart(2, '0')}`;
+
+    // Colour shifts as time runs low
+    if (remaining < 60) {
+      this.survivalTimerEl.style.color = '#ff6644';
+    } else if (remaining < 120) {
+      this.survivalTimerEl.style.color = '#ffaa44';
+    }
+  }
+
+  private triggerVictory(): void {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position: fixed; inset: 0;
+      background: rgba(0,0,4,0.95);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      font-family: monospace; color: white; z-index: 9999;
+    `;
+    overlay.innerHTML = `
+      <div style="font-size:11px; color:#334466; letter-spacing:4px; margin-bottom:20px; text-transform:uppercase;">System Status: Contained</div>
+      <div style="font-size:52px; color:#aaccff; font-weight:bold; letter-spacing:8px; margin-bottom:12px;">NIC RETREATS</div>
+      <div style="font-size:14px; color:#556677; margin-bottom:8px; font-style:italic;">For now, the void holds its breath.</div>
+      <div style="font-size:11px; color:#334455; margin-bottom:36px;">You survived 10 minutes. The system endures.</div>
+      <button onclick="location.reload()" style="
+        background: transparent;
+        color: #6688aa;
+        border: 1px solid #334466;
+        border-radius: 4px;
+        padding: 10px 36px;
+        font-size: 12px;
+        cursor: pointer;
+        font-family: monospace;
+        letter-spacing: 3px;
+      ">PLAY AGAIN</button>
+    `;
+    document.body.appendChild(overlay);
+    // Fade in
+    overlay.style.opacity = '0';
+    overlay.style.transition = 'opacity 1.2s';
+    requestAnimationFrame(() => { overlay.style.opacity = '1'; });
+  }
+
+  private showControlsHint(): void {
+    const { width, height } = this.cameras.main;
+    const mapWidth = width - (width - this.cameras.main.width);
+
+    const hint = this.add.text(
+      (width - 300) / 2,
+      height * 0.88,
+      'W  Thrust    A / D  Rotate    E  Inspect agent',
+      {
+        fontSize: '11px',
+        color: '#445566',
+        fontFamily: 'monospace',
+        backgroundColor: '#00000066',
+        padding: { x: 14, y: 8 },
+        letterSpacing: 1,
+      },
+    ).setOrigin(0.5, 0.5).setDepth(100).setAlpha(0);
+
+    this.tweens.add({ targets: hint, alpha: 1, duration: 800 });
+    this.tweens.add({ targets: hint, alpha: 0, duration: 1200, delay: 5000, onComplete: () => hint.destroy() });
+  }
+
   private triggerGameOver(): void {
     const overlay = document.createElement('div');
     overlay.style.cssText = `
@@ -307,13 +395,21 @@ export default class UIScene extends Phaser.Scene {
       font-family: monospace; color: white; z-index: 9999;
     `;
     overlay.innerHTML = `
-      <div style="font-size:32px; color:#ff2200; margin-bottom:16px;">THE VOID HAS WON</div>
-      <div style="font-size:14px; color:#aaaaaa; margin-bottom:24px;">The blackhole has consumed everything.</div>
+      <div style="font-size:11px; color:#443322; letter-spacing:4px; margin-bottom:20px; text-transform:uppercase;">System Status: Lost</div>
+      <div style="font-size:52px; color:#ff3311; font-weight:bold; letter-spacing:8px; margin-bottom:12px;">NIC WINS</div>
+      <div style="font-size:14px; color:#554433; margin-bottom:8px; font-style:italic;">"They thought naming it would contain it."</div>
+      <div style="font-size:11px; color:#443322; margin-bottom:36px;">The void has removed everything. Even you.</div>
       <button onclick="location.reload()" style="
-        background:#6644aa; color:#fff; border:none;
-        border-radius:6px; padding:10px 24px; font-size:14px;
-        cursor:pointer; font-family:monospace;
-      ">Try Again</button>
+        background: transparent;
+        color: #886655;
+        border: 1px solid #443322;
+        border-radius: 4px;
+        padding: 10px 36px;
+        font-size: 12px;
+        cursor: pointer;
+        font-family: monospace;
+        letter-spacing: 3px;
+      ">TRY AGAIN</button>
     `;
     document.body.appendChild(overlay);
     this.scene.pause('GameScene');

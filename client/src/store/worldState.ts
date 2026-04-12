@@ -45,3 +45,21 @@ export function growBlackhole(amount: number): void {
 export function isGameOver(): boolean {
   return worldState.blackholeSize >= 1;
 }
+
+// ── Survival timer (10 minutes = 600 seconds) ─────────────────────────────
+
+export const SURVIVAL_DURATION_S = 600;
+
+/** Remaining seconds on the survival timer. Counts down from SURVIVAL_DURATION_S. */
+export let survivalTimeRemaining = SURVIVAL_DURATION_S;
+
+/** Tick the timer by delta milliseconds. Returns true if the player just won. */
+export function tickSurvivalTimer(deltaMs: number): boolean {
+  if (survivalTimeRemaining <= 0 || isGameOver()) return false;
+  survivalTimeRemaining = Math.max(0, survivalTimeRemaining - deltaMs / 1000);
+  return survivalTimeRemaining <= 0 && !isGameOver();
+}
+
+export function isPlayerWin(): boolean {
+  return survivalTimeRemaining <= 0 && !isGameOver();
+}
