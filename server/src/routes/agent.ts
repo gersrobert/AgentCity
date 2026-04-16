@@ -1,6 +1,5 @@
 import { Router, Request, Response } from "express";
-import { getKey } from "../session.js";
-import { getAgentDecision, spawnAgent } from "../services/claudeService.js";
+import { getAgentDecision, spawnAgent } from "../services/llmService.js";
 import type {
   AgentThinkRequest,
   AgentDecision,
@@ -12,16 +11,6 @@ import type {
 const router = Router();
 
 router.post("/think", async (req: Request, res: Response) => {
-  const key = getKey();
-  if (!key) {
-    const body: ApiResponse<never> = {
-      ok: false,
-      error: "No API key set. Please enter your Anthropic API key first.",
-    };
-    res.status(401).json(body);
-    return;
-  }
-
   const thinkReq = req.body as AgentThinkRequest;
 
   if (!thinkReq.agent || !thinkReq.worldState) {
@@ -34,7 +23,7 @@ router.post("/think", async (req: Request, res: Response) => {
   }
 
   try {
-    const decision = await getAgentDecision(thinkReq, key);
+    const decision = await getAgentDecision(thinkReq);
     console.log("decision", decision);
     const body: ApiResponse<AgentDecision> = { ok: true, data: decision };
     res.json(body);
@@ -46,16 +35,6 @@ router.post("/think", async (req: Request, res: Response) => {
 });
 
 router.post("/spawn", async (req: Request, res: Response) => {
-  const key = getKey();
-  if (!key) {
-    const body: ApiResponse<never> = {
-      ok: false,
-      error: "No API key set. Please enter your Anthropic API key first.",
-    };
-    res.status(401).json(body);
-    return;
-  }
-
   const spawnReq = req.body as AgentSpawnRequest;
 
   if (!spawnReq.startingPlanetId || !spawnReq.worldContext) {
@@ -68,7 +47,7 @@ router.post("/spawn", async (req: Request, res: Response) => {
   }
 
   try {
-    const profile = await spawnAgent(spawnReq, key);
+    const profile = await spawnAgent(spawnReq);
     const body: ApiResponse<NewAgentProfile> = { ok: true, data: profile };
     res.json(body);
   } catch (err) {

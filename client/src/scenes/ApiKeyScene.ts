@@ -4,7 +4,7 @@ import { GAME_WIDTH, GAME_HEIGHT } from "../config";
 import { worldState } from "../store/worldState";
 import AudioManager from "../audio/AudioManager";
 
-// The lore panels shown after the API key is accepted.
+// The lore panels shown before the game starts.
 // Each panel is displayed for ~3.5 seconds with a fade transition.
 const LORE_PANELS = [
   {
@@ -41,10 +41,7 @@ const LORE_PANELS = [
 ];
 
 export default class ApiKeyScene extends Phaser.Scene {
-  // Phase 0: API key entry
-  private domElement: Phaser.GameObjects.DOMElement | null = null;
-
-  // Phase 1+: lore panels
+  // Lore panels
   private lorePanelIdx = 0;
   private lorePanelContainer: Phaser.GameObjects.Container | null = null;
   private skipText: Phaser.GameObjects.Text | null = null;
@@ -52,6 +49,9 @@ export default class ApiKeyScene extends Phaser.Scene {
 
   // Final panel: title + enter button
   private titlePanel: Phaser.GameObjects.Container | null = null;
+
+  // Loading UI
+  private loadingText: Phaser.GameObjects.Text | null = null;
 
   constructor() {
     super({ key: "ApiKeyScene" });
@@ -66,145 +66,32 @@ export default class ApiKeyScene extends Phaser.Scene {
     // Starfield for atmosphere
     this.createStarField(width, height);
 
-    this.showApiKeyPanel(width, height);
-  }
+    AudioManager.getInstance().init();
 
-  // ── Phase 0: API key entry ────────────────────────────────────────────────
-
-  private showApiKeyPanel(width: number, height: number): void {
-    // Top label
-    this.add
-      .text(width / 2, height / 2 - 160, "AUTHENTICATING RANGER CREDENTIALS", {
-        fontSize: "11px",
+    // Show a loading message while we spawn the first agent
+    this.loadingText = this.add
+      .text(width / 2, height / 2, "Summoning ranger to the system...", {
+        fontSize: "13px",
         color: "#556688",
         fontFamily: "monospace",
-        letterSpacing: 3,
+        letterSpacing: 2,
       })
       .setOrigin(0.5)
       .setAlpha(0);
 
     this.tweens.add({
-      targets: this.add
-        .text(
-          width / 2,
-          height / 2 - 160,
-          "AUTHENTICATING RANGER CREDENTIALS",
-          {
-            fontSize: "11px",
-            color: "#556688",
-            fontFamily: "monospace",
-            letterSpacing: 3,
-          },
-        )
-        .setOrigin(0.5),
-      alpha: { from: 0, to: 1 },
-      duration: 1200,
-      delay: 200,
-    });
-
-    // Subtle divider line
-    const line = this.add.graphics().setAlpha(0);
-    line.lineStyle(1, 0x334466, 0.6);
-    line.lineBetween(
-      width / 2 - 160,
-      height / 2 - 135,
-      width / 2 + 160,
-      height / 2 - 135,
-    );
-    this.tweens.add({ targets: line, alpha: 1, duration: 800, delay: 600 });
-
-    const formHtml = `
-      <div style="display:flex;flex-direction:column;gap:12px;align-items:center;width:380px;">
-        <input
-          id="api-key-input"
-          type="password"
-          placeholder="Enter clearance code..."
-          autocomplete="off"
-          style="
-            width:100%;
-            background:#03030f;
-            color:#aaccff;
-            border:1px solid #334466;
-            border-radius:4px;
-            padding:10px 14px;
-            font-size:13px;
-            font-family:monospace;
-            outline:none;
-            text-align:center;
-            letter-spacing:2px;
-            caret-color:#6688bb;
-          "
-        />
-        <button
-          id="api-key-submit"
-          style="
-            width:100%;
-            background:#0a0a22;
-            color:#88aadd;
-            border:1px solid #334466;
-            border-radius:4px;
-            padding:10px;
-            font-size:12px;
-            cursor:pointer;
-            font-weight:bold;
-            font-family:monospace;
-            letter-spacing:3px;
-            transition: border-color 0.2s, color 0.2s;
-          "
-          onmouseover="this.style.borderColor='#6688bb';this.style.color='#aaccff';"
-          onmouseout="this.style.borderColor='#334466';this.style.color='#88aadd';"
-        >CONFIRM IDENTITY</button>
-        <p id="api-key-error" style="color:#aa4433;font-size:11px;font-family:monospace;margin:0;min-height:16px;letter-spacing:1px;"></p>
-        <p style="color:#222244;font-size:9px;font-family:monospace;margin:0;letter-spacing:1px;">Key stored in memory. Never persisted.</p>
-      </div>
-    `;
-
-    this.domElement = this.add
-      .dom(width / 2, height / 2 + 20)
-      .createFromHTML(formHtml);
-    this.domElement.setDepth(10).setAlpha(0);
-    this.tweens.add({
-      targets: this.domElement,
+      targets: this.loadingText,
       alpha: 1,
-      duration: 1000,
-      delay: 800,
+      duration: 800,
     });
 
-    this.domElement.addListener("click");
-    this.domElement.on("click", (event: MouseEvent) => {
-      if ((event.target as HTMLElement).id === "api-key-submit")
-        this.handleSubmit();
-    });
-
-    this.domElement.addListener("keydown");
-    this.domElement.on("keydown", (event: KeyboardEvent) => {
-      if (event.key === "Enter") this.handleSubmit();
-    });
+    this.spawnAndStartLore();
   }
 
-  private async handleSubmit(): Promise<void> {
-    const input = document.getElementById(
-      "api-key-input",
-    ) as HTMLInputElement | null;
-    const errorEl = document.getElementById(
-      "api-key-error",
-    ) as HTMLElement | null;
-    if (!input || !errorEl) return;
+  // ── Spawn first agent then begin lore ────────────────────────────────────
 
-    const apiKey = input.value.trim();
-    if (!apiKey) {
-      errorEl.textContent = "Clearance code required.";
-      return;
-    }
-
-    AudioManager.getInstance().init();
-
-    errorEl.textContent = "Verifying...";
-
+  private async spawnAndStartLore(): Promise<void> {
     try {
-      await backendClient.setApiKey(apiKey);
-      errorEl.textContent = "Summoning ranger to the system...";
-
       const activePlanets = worldState.locations.filter(
         (l) => l.id !== "blackhole",
       );
@@ -218,24 +105,27 @@ export default class ApiKeyScene extends Phaser.Scene {
         },
       });
 
-      // Fade out the API key form, then start lore sequence
+      // Fade out loading text, then start lore sequence
       this.tweens.add({
-        targets: this.domElement,
+        targets: this.loadingText,
         alpha: 0,
         duration: 600,
         onComplete: () => {
-          this.domElement?.destroy();
-          this.domElement = null;
+          this.loadingText?.destroy();
+          this.loadingText = null;
           this.startLoreSequence(firstAgentProfile, startLoc.id);
         },
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Authentication failed.";
-      if (errorEl) errorEl.textContent = msg;
+      const msg = err instanceof Error ? err.message : "Failed to connect.";
+      if (this.loadingText) {
+        this.loadingText.setText(msg);
+        this.loadingText.setColor("#aa4433");
+      }
     }
   }
 
-  // ── Phase 1+: Lore panels ─────────────────────────────────────────────────
+  // ── Lore panels ──────────────────────────────────────────────────────────
 
   private startLoreSequence(
     firstAgentProfile: unknown,
@@ -282,7 +172,6 @@ export default class ApiKeyScene extends Phaser.Scene {
     const panel = LORE_PANELS[this.lorePanelIdx];
     this.lorePanelIdx++;
 
-    // Show each line of this panel one at a time, then advance to the next panel
     this.showLinesSequentially(
       panel.lines,
       0,
@@ -292,7 +181,7 @@ export default class ApiKeyScene extends Phaser.Scene {
   }
 
   /**
-   * Displays lines one by one: fade in → hold → fade out → next line.
+   * Displays lines one by one: fade in -> hold -> fade out -> next line.
    * After the last line of the panel, moves on to the next panel.
    */
   private showLinesSequentially(
@@ -304,7 +193,6 @@ export default class ApiKeyScene extends Phaser.Scene {
     if (this.skipping) return;
 
     if (idx >= lines.length) {
-      // All lines shown — small gap then next panel
       this.time.delayedCall(400, () =>
         this.showNextLorePanel(firstAgentProfile, firstAgentPlanetId),
       );
@@ -313,7 +201,6 @@ export default class ApiKeyScene extends Phaser.Scene {
 
     const { width, height } = this.cameras.main;
 
-    // Destroy previous line text if any
     this.lorePanelContainer?.destroy();
     this.lorePanelContainer = this.add.container(width / 2, height / 2);
 
@@ -334,14 +221,12 @@ export default class ApiKeyScene extends Phaser.Scene {
     const HOLD_MS = 2400;
     const FADE_OUT_MS = 1600;
 
-    // Fade in
     this.tweens.add({
       targets: t,
       alpha: 1,
       duration: FADE_IN_MS,
       onComplete: () => {
         if (this.skipping) return;
-        // Hold, then fade out
         this.time.delayedCall(HOLD_MS, () => {
           if (this.skipping) return;
           this.tweens.add({
@@ -361,7 +246,7 @@ export default class ApiKeyScene extends Phaser.Scene {
     });
   }
 
-  // ── Final panel: Title + Enter ────────────────────────────────────────────
+  // ── Final panel: Title + Enter ───────────────────────────────────────────
 
   private showTitlePanel(
     firstAgentProfile: unknown,
@@ -371,7 +256,6 @@ export default class ApiKeyScene extends Phaser.Scene {
 
     this.titlePanel = this.add.container(width / 2, height / 2);
 
-    // Big title
     const title = this.add
       .text(0, -80, "NIC", {
         fontSize: "96px",
@@ -383,7 +267,6 @@ export default class ApiKeyScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setAlpha(0);
 
-    // Tagline
     const tagline = this.add
       .text(0, 10, '"They thought naming it would contain it."', {
         fontSize: "13px",
@@ -395,7 +278,6 @@ export default class ApiKeyScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setAlpha(0);
 
-    // Enter button (DOM so it's interactive and styled nicely)
     const enterHtml = `
       <button id="enter-btn" style="
         background: transparent;
@@ -420,7 +302,6 @@ export default class ApiKeyScene extends Phaser.Scene {
 
     this.titlePanel.add([title, tagline]);
 
-    // Fade in title, tagline, then button
     this.tweens.add({ targets: title, alpha: 1, duration: 1400, delay: 200 });
     this.tweens.add({
       targets: tagline,
@@ -461,14 +342,12 @@ export default class ApiKeyScene extends Phaser.Scene {
   ): void {
     const { width, height } = this.cameras.main;
 
-    // Fade everything out
     this.tweens.add({
       targets: [title, tagline, enterDom],
       alpha: 0,
       duration: 800,
     });
 
-    // Full-screen fade to black then start game
     const fade = this.add.graphics().setDepth(50);
     fade.fillStyle(0x000000, 0).fillRect(0, 0, width, height);
     this.tweens.add({
@@ -486,7 +365,7 @@ export default class ApiKeyScene extends Phaser.Scene {
     });
   }
 
-  // ── Starfield ─────────────────────────────────────────────────────────────
+  // ── Starfield ────────────────────────────────────────────────────────────
 
   private createStarField(w: number, h: number): void {
     const gfx = this.add.graphics().setDepth(0);
@@ -499,7 +378,6 @@ export default class ApiKeyScene extends Phaser.Scene {
       gfx.fillCircle(x, y, size);
     }
 
-    // A few slowly twinkling stars
     for (let i = 0; i < 25; i++) {
       const x = Math.random() * w;
       const y = Math.random() * h;

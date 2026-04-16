@@ -24,16 +24,6 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return json.data;
 }
 
-export async function setApiKey(apiKey: string): Promise<void> {
-  await post('/api/session/key', { apiKey });
-}
-
-export async function checkSessionStatus(): Promise<boolean> {
-  const res = await fetch('/api/session/status');
-  const json: { hasKey: boolean } = await res.json();
-  return json.hasKey;
-}
-
 export async function agentThink(req: AgentThinkRequest): Promise<AgentDecision> {
   return post<AgentDecision>('/api/agent/think', req);
 }

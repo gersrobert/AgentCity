@@ -1,6 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getKey } from '../session.js';
-import { processGMMessage } from '../services/claudeService.js';
+import { processGMMessage } from '../services/llmService.js';
 import type {
   GMChatRequest,
   WorldEvent,
@@ -10,16 +9,6 @@ import type {
 const router = Router();
 
 router.post('/chat', async (req: Request, res: Response) => {
-  const key = getKey();
-  if (!key) {
-    const body: ApiResponse<never> = {
-      ok: false,
-      error: 'No API key set. Please enter your Anthropic API key first.',
-    };
-    res.status(401).json(body);
-    return;
-  }
-
   const gmReq = req.body as GMChatRequest;
 
   if (!gmReq.playerMessage || !gmReq.worldState) {
@@ -32,7 +21,7 @@ router.post('/chat', async (req: Request, res: Response) => {
   }
 
   try {
-    const event = await processGMMessage(gmReq, key);
+    const event = await processGMMessage(gmReq);
     const body: ApiResponse<WorldEvent> = { ok: true, data: event };
     res.json(body);
   } catch (err) {

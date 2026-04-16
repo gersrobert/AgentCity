@@ -111,10 +111,6 @@ export interface WorldEvent {
 
 // ─── API ──────────────────────────────────────────────────────────────────────
 
-export interface ApiKeyRequest {
-  apiKey: string;
-}
-
 export interface ApiResponse<T> {
   ok: boolean;
   data?: T;
