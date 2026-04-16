@@ -1,17 +1,6 @@
 # AgentCity
 
 # todo:
-
-(pre-beer)
-- [ ] make the game fun
-  - [ ] make trading more fun/complex
-    - [ ] make the visuals better - i.e. there should be a pop up to see when someone bought something, and sold something
-    - [ ] overview of what can be bought at the different planets
-        - [ ] click on the planet and show information about it, including what items can you buy there (with icons of the items)
-  - [ ] when you inspect a character they give you an overview of what they have (with icons of the items), but the LLM can lie about the inventory, illegal items would never show up here. you can do a thorough check where these items would get shown, but this would take some time (i.e. minigame which if you fail you will not find the things, be inspired by minigames from among us (the game)). If illegal items, destroy the agent
-  - [ ] We need to find reasoning for agents to go to the blackhole without being badly motivated (i.e. if the agents goes to the black hole we would know they are evil, but that makes it easy for us to just kill them, so there needs to be other motivation too) - give suggestions
-  - [ ] add audio
-  - [ ] dont commit and push code to github (dont add yourself as co-author)
   
 Inspection logic changes:
 - [x] inspection is only possible by pressing E button when close to the agent
@@ -28,7 +17,6 @@ Sus logic: (beer 2)
 
 General:
 - [x] show when someone bought something/sold something (only the dollar amounts, like a pop up above the agent)
-- [?] Add audio - background music, sound for rocket, sound for selling/buying, sound for inspecting, sound for explosion, sound for when black hole grows, sound for when agent or planet spawns
 
 - [x] when game starts one agent should already be there
 - [x] Personality text should be shorter
@@ -38,11 +26,12 @@ General:
 - [x] planets should be clickable to show what resources they have (what you can buy and sell) and short description of the planets, choose right icons for the resources from the /item folder, in the image. Show the planet image, just a miniature, in the same window
 - [x] Icons for items we have the folder called /item you should select the right icons for each item, and the inventory of the agent should be more visual so its easier to understand what the agent has
 - [x] get rid of the text bubbles of the agents that appear above them
+- [x] Branding (backstory, intro page visuals, fonts)
 
+Nice to have:
 - [ ] avatars images
-- [ ] agents need to go through the black hole, else its obvious if an agent has a secret agenda and wants to feed the blackhole
-- [ ] Branding (backstory, intro page visuals, fonts)
-
+- [ ] engine roar is only for 11 seconds until going quiet. we should cut it to the first 5 seconds and be in a loop
+- [?] Add audio - background music, sound for rocket, sound for selling/buying, sound for inspecting, sound for explosion, sound for when black hole grows, sound for when agent or planet spawns
 
 Known bugs:
 - [x] when playing minigame, agents gets unfrozen and leaves
@@ -58,9 +47,13 @@ Known bugs:
 - [x] we can fly through a blackhole, thats a  bug, we need to fly around it (like the other planets)
 - [x] borders of the map are not working, they should be hard borders, not being able to fly through them
 - [x] not yet spawned planets are still not being able to be flown througn, if they are not spawned it should be possible to go through them
-- [ ] engine roar is only for 11 seconds until going quiet. we should cut it to the first 5 seconds and be in a loop
 - [x]  only be able to intercept/inspect agents when they are not already orbitting around a planet
-- [ ] agents cant be able to move through blackhole
+- [ ] when clicking planet while inspecting player, you get stuck
+- [ ] the bloop sound after the intro kills the vibe1
+
+beer 5
+- [x] agents cant be able to move through blackhole
+- [x] agents need to go through the black hole, else its obvious if an agent has a secret agenda and wants to feed the blackhole
 
 Chore:
 - [ ] remove .DS_Store
