@@ -14,7 +14,7 @@ router.post('/chat', async (req: Request, res: Response) => {
   if (!key) {
     const body: ApiResponse<never> = {
       ok: false,
-      error: 'No API key set. Please enter your Anthropic API key first.',
+      error: 'No API key set. Please enter your Gemini API key first.',
     };
     res.status(401).json(body);
     return;

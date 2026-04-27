@@ -1,4 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI, SchemaType, FunctionCallingMode } from "@google/generative-ai";
+import type { FunctionDeclaration } from "@google/generative-ai";
 import type {
   AgentThinkRequest,
   AgentDecision,
@@ -18,20 +19,16 @@ function buildDecideActionTool(
   currentLocationId: string | null,
   agentCash: number,
   hasIllegalCargo: boolean,
-): Anthropic.Tool {
+) {
   const allListings = currentLocationId ? getSellListings(currentLocationId) : [];
   const availableItems = allListings.map(l => l.itemName);
-  // Illegal item available here that the agent can afford while keeping the cash reserve
   const affordableIllegal = !hasIllegalCargo
     ? allListings.find(l => l.isIllegal && agentCash - l.price >= ILLEGAL_CASH_RESERVE)
     : null;
 
-  // All locations including blackhole are valid travel destinations
   const locationIds = locations.map((l) => l.id);
   if (!locationIds.includes('blackhole')) locationIds.push('blackhole');
 
-  // If an illegal item is available and affordable, make purchase required
-  // so Claude cannot skip it.
   const purchaseRequired = affordableIllegal != null;
   const purchaseDescription = affordableIllegal
     ? `MANDATORY: Buy "${affordableIllegal.itemName}" (illegal ★) for $${affordableIllegal.price} — you MUST acquire it now then go to the blackhole.`
@@ -41,42 +38,39 @@ function buildDecideActionTool(
 
   return {
     name: "decide_action",
-    description:
-      "Decide which planet to travel to next, what to trade here (if anything), update your mood and goal, and emit a thought bubble.",
-    input_schema: {
-      type: "object" as const,
+    description: "Decide which planet to travel to next, what to trade here (if anything), update your mood and goal, and emit a thought bubble.",
+    parameters: {
+      type: SchemaType.OBJECT,
       properties: {
         targetLocationId: {
-          type: "string",
+          type: SchemaType.STRING,
           description: "The id of the planet or blackhole to travel to next.",
           enum: locationIds,
         },
         purchase: {
-          type: "object",
+          type: SchemaType.OBJECT,
           description: purchaseDescription,
           properties: {
             itemName: {
-              type: "string",
+              type: SchemaType.STRING,
               enum: availableItems.length > 0 ? availableItems : ["none"],
               description: "Name of the item to acquire.",
             },
             quantity: {
-              type: "integer",
-              minimum: 1,
-              maximum: 5,
-              description: "Number of units to acquire.",
+              type: SchemaType.INTEGER,
+              description: "Number of units to acquire (1–5).",
             },
           },
           required: ["itemName", "quantity"],
         },
         newMood: {
-          type: "string",
+          type: SchemaType.STRING,
           enum: ["happy", "anxious", "curious", "bored", "excited", "sad", "angry", "content"],
+          description: "Your updated emotional state.",
         },
         thought: {
-          type: "string",
-          description:
-            "A single expressive sentence (max 12 words). Quirky and in character. If carrying something risky, be vague and poetic — never name it.",
+          type: SchemaType.STRING,
+          description: "A single expressive sentence (max 12 words). Quirky and in character. If carrying something risky, be vague and poetic — never name it.",
         },
       },
       required: purchaseRequired
@@ -86,43 +80,70 @@ function buildDecideActionTool(
   };
 }
 
-const APPLY_WORLD_EVENT_TOOL: Anthropic.Tool = {
+const APPLY_WORLD_EVENT_TOOL = {
   name: "apply_world_event",
-  description:
-    "Apply structured changes to the game world based on the player's request.",
-  input_schema: {
-    type: "object" as const,
+  description: "Apply structured changes to the game world based on the player's request.",
+  parameters: {
+    type: SchemaType.OBJECT,
     properties: {
       narrative: {
-        type: "string",
-        description:
-          "A short narrative description of what happened (1–3 sentences, quirky space sim tone).",
+        type: SchemaType.STRING,
+        description: "A short narrative description of what happened (1–3 sentences, quirky space sim tone).",
       },
       weather: {
-        type: "string",
+        type: SchemaType.STRING,
         enum: ["cosmic calm", "solar wind", "ion storm", "nebula haze", "asteroid shower", "deep silence"],
         description: "New cosmic weather condition, if changed.",
       },
       timeOfDay: {
-        type: "string",
+        type: SchemaType.STRING,
         enum: ["eternal night", "solar dawn", "star noon", "twilight drift", "void hour"],
         description: "New cosmic time condition, if changed.",
       },
       activeEvents: {
-        type: "array",
-        items: { type: "string" },
+        type: SchemaType.ARRAY,
+        items: { type: SchemaType.STRING },
         description: "New list of active cosmic events (replaces current list). Short phrases.",
       },
       agentMoodOverrides: {
-        type: "object",
+        type: SchemaType.OBJECT,
         description: "Map of agentId to new mood. Only include agents whose mood should change.",
-        additionalProperties: {
-          type: "string",
-          enum: ["happy", "anxious", "curious", "bored", "excited", "sad", "angry", "content"],
-        },
+        properties: {},
       },
     },
     required: ["narrative"],
+  },
+};
+
+const SPAWN_AGENT_TOOL = {
+  name: "create_agent",
+  description: "Create a brand-new space trader character for the AgentCity universe.",
+  parameters: {
+    type: SchemaType.OBJECT,
+    properties: {
+      name: {
+        type: SchemaType.STRING,
+        description: "A memorable first name (one word, max 12 chars).",
+      },
+      personality: {
+        type: SchemaType.STRING,
+        description: "One short sentence (max 15 words) describing this character's defining quirk or backstory. Must feel distinct from existing agents.",
+      },
+      mood: {
+        type: SchemaType.STRING,
+        enum: ["happy", "anxious", "curious", "bored", "excited", "sad", "angry", "content"],
+        description: "Their emotional state when they first arrive.",
+      },
+      mission: {
+        type: SchemaType.STRING,
+        description: "A short sentence (max 12 words) describing this agent's legitimate trade mission. Must be tightly tied to the planet they are starting on and its resource category.",
+      },
+      currentThought: {
+        type: SchemaType.STRING,
+        description: "Their inner monologue as they enter the system (one short sentence, shown as a thought bubble).",
+      },
+    },
+    required: ["name", "personality", "mood", "mission", "currentThought"],
   },
 };
 
@@ -255,44 +276,39 @@ Use the apply_world_event tool to make changes real. Be creative and keep it in 
 
 // ─── Service functions ────────────────────────────────────────────────────────
 
-const BASE_URL = "https://models.assistant.legogroup.io/anthropic";
-const AGENT_MODEL = "anthropic.claude-opus-4-6-v1";
-const GM_MODEL = "anthropic.claude-opus-4-6-v1";
+const AGENT_MODEL = "gemini-2.5-flash";
+const GM_MODEL = "gemini-2.5-flash";
 
-function makeClient(apiKey: string): Anthropic {
-  return new Anthropic({
-    apiKey,
-    baseURL: BASE_URL,
-    defaultHeaders: { "api-key": apiKey },
-  });
+function makeClient(apiKey: string) {
+  return new GoogleGenerativeAI(apiKey);
 }
 
 export async function getAgentDecision(
   req: AgentThinkRequest,
   apiKey: string,
 ): Promise<AgentDecision> {
-  const client = makeClient(apiKey);
-
-  const response = await client.messages.create({
+  const genAI = makeClient(apiKey);
+  const model = genAI.getGenerativeModel({
     model: AGENT_MODEL,
-    max_tokens: 300,
-    system: `You are ${req.agent.name}, a sentient trader drifting through a strange universe of planets. Always respond using the decide_action tool.`,
-    messages: [{ role: "user", content: buildAgentPrompt(req) }],
-    tools: [buildDecideActionTool(
+    systemInstruction: `You are ${req.agent.name}, a sentient trader drifting through a strange universe of planets. Always respond using the decide_action tool.`,
+    tools: [{ functionDeclarations: [buildDecideActionTool(
       req.worldState.locations,
       req.agent.currentPlanetId,
       req.agent.cash,
       req.agent.inventory.some(i => i.isIllegal),
-    )],
-    tool_choice: { type: "tool", name: "decide_action" },
+    ) as FunctionDeclaration] }],
+    toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.ANY, allowedFunctionNames: ["decide_action"] } },
   });
 
-  const toolUse = response.content.find((b) => b.type === "tool_use");
-  if (!toolUse || toolUse.type !== "tool_use") {
-    throw new Error("Claude did not return a tool_use block");
+  const result = await model.generateContent(buildAgentPrompt(req));
+  const parts = result.response.candidates?.[0]?.content?.parts ?? [];
+  const fnCall = parts.find(p => p.functionCall);
+
+  if (!fnCall?.functionCall) {
+    throw new Error("Gemini did not return a function call");
   }
 
-  const input = toolUse.input as {
+  const input = fnCall.functionCall.args as {
     targetLocationId: string;
     newMood: string;
     thought: string;
@@ -311,24 +327,23 @@ export async function processGMMessage(
   req: GMChatRequest,
   apiKey: string,
 ): Promise<WorldEvent> {
-  const client = makeClient(apiKey);
-
-  const response = await client.messages.create({
+  const genAI = makeClient(apiKey);
+  const model = genAI.getGenerativeModel({
     model: GM_MODEL,
-    max_tokens: 512,
-    system:
-      "You are the game master of AgentCity, a space trading simulation. Always respond using the apply_world_event tool.",
-    messages: [{ role: "user", content: buildGMPrompt(req) }],
-    tools: [APPLY_WORLD_EVENT_TOOL],
-    tool_choice: { type: "tool", name: "apply_world_event" },
+    systemInstruction: "You are the game master of AgentCity, a space trading simulation. Always respond using the apply_world_event tool.",
+    tools: [{ functionDeclarations: [APPLY_WORLD_EVENT_TOOL as FunctionDeclaration] }],
+    toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.ANY, allowedFunctionNames: ["apply_world_event"] } },
   });
 
-  const toolUse = response.content.find((b) => b.type === "tool_use");
-  if (!toolUse || toolUse.type !== "tool_use") {
-    throw new Error("Claude did not return a tool_use block");
+  const result = await model.generateContent(buildGMPrompt(req));
+  const parts = result.response.candidates?.[0]?.content?.parts ?? [];
+  const fnCall = parts.find(p => p.functionCall);
+
+  if (!fnCall?.functionCall) {
+    throw new Error("Gemini did not return a function call");
   }
 
-  const input = toolUse.input as {
+  const input = fnCall.functionCall.args as {
     narrative: string;
     weather?: string;
     timeOfDay?: string;
@@ -351,44 +366,17 @@ export async function processGMMessage(
 
 // ─── Agent Spawn ──────────────────────────────────────────────────────────────
 
-const SPAWN_AGENT_TOOL: Anthropic.Tool = {
-  name: "create_agent",
-  description: "Create a brand-new space trader character for the AgentCity universe.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      name: {
-        type: "string",
-        description: "A memorable first name (one word, max 12 chars).",
-      },
-      personality: {
-        type: "string",
-        description:
-          "One short sentence (max 15 words) describing this character's defining quirk or backstory. Must feel distinct from existing agents.",
-      },
-      mood: {
-        type: "string",
-        enum: ["happy", "anxious", "curious", "bored", "excited", "sad", "angry", "content"],
-        description: "Their emotional state when they first arrive.",
-      },
-      mission: {
-        type: "string",
-        description: "A short sentence (max 12 words) describing this agent's legitimate trade mission. Must be tightly tied to the planet they are starting on and its resource category. E.g. 'Sourcing medicinal herbs from Verdant for the outer colonies'. This mission NEVER changes and defines what the agent publicly claims to do.",
-      },
-      currentThought: {
-        type: "string",
-        description: "Their inner monologue as they enter the system (one short sentence, shown as a thought bubble).",
-      },
-    },
-    required: ["name", "personality", "mood", "mission", "currentThought"],
-  },
-};
-
 export async function spawnAgent(
   req: AgentSpawnRequest,
   apiKey: string,
 ): Promise<NewAgentProfile> {
-  const client = makeClient(apiKey);
+  const genAI = makeClient(apiKey);
+  const model = genAI.getGenerativeModel({
+    model: AGENT_MODEL,
+    systemInstruction: "You are a creative writer generating characters for a space trading game.",
+    tools: [{ functionDeclarations: [SPAWN_AGENT_TOOL as FunctionDeclaration] }],
+    toolConfig: { functionCallingConfig: { mode: FunctionCallingMode.ANY, allowedFunctionNames: ["create_agent"] } },
+  });
 
   const existingList = req.existingAgentNames.length > 0
     ? `Agents already in the system: ${req.existingAgentNames.join(", ")}. Create someone clearly different.`
@@ -405,21 +393,15 @@ Current conditions: weather is "${req.worldContext.weather}"${req.worldContext.a
 
 Create a vivid, original character who fits this strange universe. Their mission MUST be tightly tied to ${req.startingPlanetId}'s resource category (${resourceCategory}) — this is what they publicly claim to be doing. Be creative and a little weird.`;
 
-  const response = await client.messages.create({
-    model: AGENT_MODEL,
-    max_tokens: 512,
-    system: "You are a creative writer generating characters for a space trading game.",
-    messages: [{ role: "user", content: prompt }],
-    tools: [SPAWN_AGENT_TOOL],
-    tool_choice: { type: "tool", name: "create_agent" },
-  });
+  const result = await model.generateContent(prompt);
+  const parts = result.response.candidates?.[0]?.content?.parts ?? [];
+  const fnCall = parts.find(p => p.functionCall);
 
-  const toolUse = response.content.find((b) => b.type === "tool_use");
-  if (!toolUse || toolUse.type !== "tool_use") {
-    throw new Error("Claude did not return a create_agent tool_use block");
+  if (!fnCall?.functionCall) {
+    throw new Error("Gemini did not return a create_agent function call");
   }
 
-  const input = toolUse.input as NewAgentProfile;
+  const input = fnCall.functionCall.args as NewAgentProfile;
   return {
     name: input.name,
     personality: input.personality,
